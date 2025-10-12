@@ -1,0 +1,37 @@
+🚧👷 This repository is under heavy development! 🛠️🚸
+ # teletyperacer
+
+play typeracer in your terminal
+
+### Run
+
+The easiest way to play is through with Node:
+
+```bash
+npx teletyperacer
+```
+or install it globally with:
+
+```bash
+npm install -g teletyperacer
+# then run with `typeracer`
+```
+
+The `npm` package is automatically built through GitHub Actions.
+
+Or, install it with Go:
+
+```bash
+go install github.com/givensuman/teletyperacer
+```
+
+Lastly, it can be built from source with:
+
+```bash
+git clone https://github.com/givensuman/teletyperacer
+cd teletyperacer && go build
+```
+
+### Acknowledgements
+
+The original [typeracer](https://play.typeracer.com/) game and concept was created by Alex Epshteyn. It's free to play and you should check it out if you haven't!
