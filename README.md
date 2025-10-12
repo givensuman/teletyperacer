@@ -5,7 +5,7 @@ play typeracer in your terminal
 
 ### Run
 
-The easiest way to play is through with Node:
+The easiest way to play is through Node's pre-packaged executable:
 
 ```bash
 npx teletyperacer
