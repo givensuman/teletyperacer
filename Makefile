@@ -1,8 +1,14 @@
 .PHONY: build server client multiplayer
 
+# TODO
 # Will need a better way to handle this 
 # in the future
 TERM = cosmic-term
+
+.PHONY: test
+test:
+	(cd client && go test ./...);
+	(cd server && go test ./...);
 
 build:
 	docker compose build
@@ -22,3 +28,7 @@ multiplayer: # Spin up two clients and one server
 	$(TERM) -e docker compose run --rm client &
 	$(TERM) -e docker compose run --rm client &
 	wait
+
+.PHONY: clean
+clean: # Clean up all containers
+	docker compose down
