@@ -8,8 +8,8 @@
 - [ ] **lobby_public_host**: Create public lobby screen for hosting (no code, lobby appears in public browse list)
 - [ ] **lobby_private_join**: Create screen for joining private lobby (enter room code, connect)
 - [ ] **lobby_public_browse**: Create screen for browsing and joining public lobbies (list available public games)
-- [ ] **server_websockets_setup**: Set up websocket server infrastructure
-- [ ] **server_websockets_room_create**: Implement room creation logic on server (private and public)
+- [x] **server_websockets_setup**: Set up websocket server infrastructure
+- [x] **server_websockets_room_create**: Implement room creation logic on server (private and public)
 - [ ] **server_websockets_player_join**: Implement player joining logic on server (validate codes for private, add to public)
 - [ ] **server_websockets_lobby_broadcast**: Implement lobby updates broadcasting (player list, ready status)
 

@@ -11,24 +11,32 @@ import (
 )
 
 func TestNewHub(t *testing.T) {
-	hub := NewHub()
-	if hub.Clients == nil {
-		t.Error("Clients map not initialized")
+	hub := CreateHub()
+	if hub.Rooms == nil {
+		t.Error("Rooms map not initialized")
 	}
-	if hub.Broadcast == nil {
-		t.Error("Broadcast channel not initialized")
+}
+
+func TestCreateRoom(t *testing.T) {
+	hub := CreateHub()
+	room := hub.CreateRoom("testroom", "Test Room", false, "")
+	if room.ID != "testroom" {
+		t.Errorf("Expected room ID 'testroom', got %s", room.ID)
 	}
-	if hub.Register == nil {
-		t.Error("Register channel not initialized")
+	if room.Name != "Test Room" {
+		t.Errorf("Expected room name 'Test Room', got %s", room.Name)
 	}
-	if hub.Unregister == nil {
-		t.Error("Unregister channel not initialized")
+	if room.IsPrivate {
+		t.Error("Expected room to be public")
+	}
+	if _, exists := hub.Rooms["testroom"]; !exists {
+		t.Error("Room not added to hub")
 	}
 }
 
 func TestRegister(t *testing.T) {
-	hub := NewHub()
-	go hub.Run()
+	hub := CreateHub()
+	room := hub.CreateRoom("testroom", "Test Room", false, "")
 
 	upgrader := websocket.Upgrader{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -37,9 +45,9 @@ func TestRegister(t *testing.T) {
 			t.Error(err)
 			return
 		}
-		hub.Register <- conn
+		room.RegisterClient(conn)
 		go func() {
-			defer func() { hub.Unregister <- conn }()
+			defer func() { room.UnregisterClient(conn) }()
 			for {
 				_, _, err := conn.ReadMessage()
 				if err != nil {
@@ -58,14 +66,14 @@ func TestRegister(t *testing.T) {
 	defer conn.Close()
 
 	time.Sleep(10 * time.Millisecond)
-	if len(hub.Clients) != 1 {
-		t.Errorf("Expected 1 client, got %d", len(hub.Clients))
+	if len(room.Clients) != 1 {
+		t.Errorf("Expected 1 client, got %d", len(room.Clients))
 	}
 }
 
 func TestUnregister(t *testing.T) {
-	hub := NewHub()
-	go hub.Run()
+	hub := CreateHub()
+	room := hub.CreateRoom("testroom", "Test Room", false, "")
 
 	upgrader := websocket.Upgrader{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -74,9 +82,10 @@ func TestUnregister(t *testing.T) {
 			t.Error(err)
 			return
 		}
-		hub.Register <- conn
+
+		room.RegisterClient(conn)
 		go func() {
-			defer func() { hub.Unregister <- conn }()
+			defer func() { room.UnregisterClient(conn) }()
 			for {
 				_, _, err := conn.ReadMessage()
 				if err != nil {
@@ -97,14 +106,14 @@ func TestUnregister(t *testing.T) {
 	conn.Close()
 	time.Sleep(10 * time.Millisecond)
 
-	if len(hub.Clients) != 0 {
-		t.Errorf("Expected 0 clients, got %d", len(hub.Clients))
+	if len(room.Clients) != 0 {
+		t.Errorf("Expected 0 clients, got %d", len(room.Clients))
 	}
 }
 
 func TestBroadcast(t *testing.T) {
-	hub := NewHub()
-	go hub.Run()
+	hub := CreateHub()
+	room := hub.CreateRoom("testroom", "Test Room", false, "")
 
 	upgrader := websocket.Upgrader{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -113,15 +122,15 @@ func TestBroadcast(t *testing.T) {
 			t.Error(err)
 			return
 		}
-		hub.Register <- conn
+		room.RegisterClient(conn)
 		go func() {
-			defer func() { hub.Unregister <- conn }()
+			defer func() { room.UnregisterClient(conn) }()
 			for {
 				_, message, err := conn.ReadMessage()
 				if err != nil {
 					break
 				}
-				hub.Broadcast <- message
+				room.Broadcast <- message
 			}
 		}()
 	}))
