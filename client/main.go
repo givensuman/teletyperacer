@@ -10,6 +10,8 @@ func start() views.Model {
 		CurrentView: views.Home,
 		Width:       80,
 		Height:      24,
+		Socket:      nil,
+		RoomID:      "",
 	}
 }
 

@@ -20,11 +20,18 @@ const (
 	Play
 )
 
+type ConnectedMsg struct {
+	Socket *Socket
+	RoomID string
+}
+
 // Model represents application state for the TUI.
 type Model struct {
 	CurrentView View
 	Width       int
 	Height      int
+	Socket      *Socket
+	RoomID      string
 }
 
 func HomeView(m Model) string {
@@ -65,6 +72,17 @@ func centerText(text string, width int) string {
 	return strings.Repeat(" ", padding) + text
 }
 
+func connectToRoom(roomID string) tea.Cmd {
+	return tea.Cmd(func() tea.Msg {
+		socket, err := Connect(roomID)
+		if err != nil {
+			// For simplicity, ignore error or handle later
+			return nil
+		}
+		return ConnectedMsg{Socket: socket, RoomID: roomID}
+	})
+}
+
 func (m Model) Init() tea.Cmd {
 	return nil
 }
@@ -74,6 +92,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.Width = msg.Width
 		m.Height = msg.Height
+	case ConnectedMsg:
+		m.Socket = msg.Socket
+		m.RoomID = msg.RoomID
+		m.Socket.On("game_started", func(data any) {
+			// Handle game start
+		})
+		m.CurrentView = Lobby
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "q":
@@ -86,10 +111,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.CurrentView = Host
 		case "j":
 			m.CurrentView = Join
+			// For demo, connect to a test room
+			return m, connectToRoom("test-room-id")
 		case "l":
 			m.CurrentView = Lobby
 		case "y":
 			m.CurrentView = Play
+			if m.Socket != nil {
+				m.Socket.Emit("start_game", []byte("hello"))
+			}
 		}
 	}
 	return m, nil
@@ -104,9 +134,12 @@ func (m Model) View() string {
 	case Host:
 		return "Host View\nPress 'h' for Home, 'j' to Join, 'q' to Quit"
 	case Join:
-		return "Join View\nPress 'h' for Home, 'o' to Host, 'q' to Quit"
+		if m.Socket != nil {
+			return "Join View - Connected to room " + m.RoomID + "\nPress 'h' for Home, 'l' for Lobby, 'q' to Quit"
+		}
+		return "Join View - Connecting...\nPress 'h' for Home, 'q' to Quit"
 	case Lobby:
-		return "Lobby View\nPress 'h' for Home, 'y' to Play, 'q' to Quit"
+		return "Lobby View - Room: " + m.RoomID + "\nPress 'h' for Home, 'y' to Play, 'q' to Quit"
 	case Play:
 		return "Play View\nPress 'h' for Home, 'l' for Lobby, 'q' to Quit"
 	default:

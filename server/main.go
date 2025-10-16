@@ -2,13 +2,12 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"sync"
 
 	"github.com/gorilla/websocket"
-	"server/lib"
+	"server/sockets"
 )
 
 var upgrader = websocket.Upgrader{
@@ -30,7 +29,13 @@ type CreateRoomResponse struct {
 	ID string `json:"id"`
 }
 
-func handleCreateRoom(hub *hub.Hub, w http.ResponseWriter, r *http.Request) {
+type IncomingMessage struct {
+	Event      string      `json:"event"`
+	Data       interface{} `json:"data,omitempty"`
+	CallbackID *string     `json:"callbackId,omitempty"`
+}
+
+func handleCreateRoom(hub *sockets.Hub, w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -44,16 +49,15 @@ func handleCreateRoom(hub *hub.Hub, w http.ResponseWriter, r *http.Request) {
 
 	roomMutex.Lock()
 	roomCounter++
-	id := fmt.Sprintf("room%d", roomCounter)
 	roomMutex.Unlock()
 
-	room := hub.CreateRoom(id, req.Name, req.IsPrivate, req.Password)
+	room := hub.CreateRoom(req.Name, req.IsPrivate, req.Password)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(CreateRoomResponse{ID: room.ID})
+	json.NewEncoder(w).Encode(CreateRoomResponse{ID: room.String()})
 }
 
-func handleWebSocket(hub *hub.Hub, w http.ResponseWriter, r *http.Request) {
+func handleWebSocket(hub *sockets.Hub, w http.ResponseWriter, r *http.Request) {
 	// Parse roomID from URL path, assuming /ws/{roomID}
 	path := r.URL.Path
 	if len(path) <= 4 || path[:4] != "/ws/" {
@@ -62,8 +66,8 @@ func handleWebSocket(hub *hub.Hub, w http.ResponseWriter, r *http.Request) {
 	}
 	roomID := path[4:] // Remove "/ws/"
 
-	room, exists := hub.Rooms[roomID]
-	if !exists {
+	room, err := hub.GetRoom(roomID)
+	if err != nil {
 		http.Error(w, "Room not found", http.StatusNotFound)
 		return
 	}
@@ -88,25 +92,55 @@ func handleWebSocket(hub *hub.Hub, w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer func() { room.UnregisterClient(conn) }()
 		for {
-			_, message, err := conn.ReadMessage()
+			_, rawMsg, err := conn.ReadMessage()
 			if err != nil {
 				log.Println("Read error:", err)
 				break
 			}
-			log.Printf("Received in room %s: %s", roomID, message)
-			room.Broadcast <- message // Broadcast the message to room clients
+			log.Printf("Received in room %s: %s", roomID, rawMsg)
+
+			var incoming IncomingMessage
+			if err := json.Unmarshal(rawMsg, &incoming); err != nil {
+				log.Println("JSON unmarshal error:", err)
+				continue
+			}
+
+			client := room.GetClient(conn)
+			if client == nil {
+				log.Println("Client not found")
+				continue
+			}
+
+			msg := &sockets.Message{
+				SenderID:   client.ID,
+				Event:      incoming.Event,
+				Data:       incoming.Data,
+				CallbackID: incoming.CallbackID,
+			}
+
+			room.Broadcast <- msg
+
+			// If callback, send ack back to sender
+			if incoming.CallbackID != nil {
+				ackMsg := &sockets.Message{
+					Event:      incoming.Event + "_ack",
+					Data:       "acknowledged",
+					CallbackID: incoming.CallbackID,
+				}
+				room.SendToClient(client.ID, ackMsg)
+			}
 		}
 	}()
 }
 
 func main() {
-	h := hub.CreateHub()
+	h := sockets.CreateHub()
 
 	http.HandleFunc("/rooms", func(w http.ResponseWriter, r *http.Request) {
 		handleCreateRoom(h, w, r)
 	})
 
-	http.HandleFunc("/ws/", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		handleWebSocket(h, w, r)
 	})
 
