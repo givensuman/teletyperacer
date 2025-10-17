@@ -1,4 +1,4 @@
-module client
+module github.com/givensuman/teletyperacer/client
 
 go 1.25.0
 

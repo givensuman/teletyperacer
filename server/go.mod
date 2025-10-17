@@ -1,4 +1,4 @@
-module server
+module github.com/givensuman/teletyperacer/server
 
 go 1.25.1
 
