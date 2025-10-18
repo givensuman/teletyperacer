@@ -1,8 +1,8 @@
 package main
 
 import (
-	"client/views"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/givensuman/teletyperacer/client/views"
 )
 
 func start() views.Model {

@@ -26,12 +26,12 @@ type IMessageBroker[T any] interface {
 func SendMessageTo(conn *websocket.Conn, message *Message) error {
 	jsonMsg, err := json.Marshal(message)
 	if err != nil {
-		return fmt.Errorf("JSON marshal error:", err)
+		return fmt.Errorf("JSON marshal error: %s", err)
 	}
 
 	err = conn.WriteMessage(websocket.TextMessage, jsonMsg)
 	if err != nil {
-		return fmt.Errorf("Send to client error:", err)
+		return fmt.Errorf("send to client error: %s", err)
 	}
 
 	return nil

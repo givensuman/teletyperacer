@@ -42,7 +42,7 @@ type Hub struct {
 // CreateHub initializes a new Hub.
 func CreateHub() *Hub {
 	return &Hub{
-		Rooms: make(map[uuid.UUID]*Room),
+		Rooms:   make(map[uuid.UUID]*Room),
 		Clients: make(map[uuid.UUID]*Client),
 	}
 }
@@ -55,7 +55,8 @@ func (h *Hub) AddRoom(room *Room) {
 
 // RemoveRoom removes a room from the hub.
 func (h *Hub) RemoveRoom(roomID string) error {
-	id, err := uuid.Parse(roomID); if err != nil {
+	id, err := uuid.Parse(roomID)
+	if err != nil {
 		return fmt.Errorf("unable to parse roomID %s in hub.RemoveRoom call: %s", roomID, err)
 	}
 
@@ -80,7 +81,8 @@ func (h *Hub) AddClient(client *Client) {
 
 // RemoveClient removes a client from the hub.
 func (h *Hub) RemoveClient(clientID string) error {
-	id, err := uuid.Parse(clientID); if err != nil {
+	id, err := uuid.Parse(clientID)
+	if err != nil {
 		return fmt.Errorf("unable to parse key %s in hub.RemoveClient call: %s", clientID, err)
 	}
 
@@ -90,7 +92,8 @@ func (h *Hub) RemoveClient(clientID string) error {
 
 // GetClient retrieves a client by its key.
 func (h *Hub) GetClient(clientID string) (*Client, error) {
-	id, err := uuid.Parse(clientID); if err != nil {
+	id, err := uuid.Parse(clientID)
+	if err != nil {
 		return nil, fmt.Errorf("unable to parse key %s in hub.GetClient call: %s", clientID, err)
 	}
 
@@ -99,10 +102,12 @@ func (h *Hub) GetClient(clientID string) (*Client, error) {
 
 // MoveClientToRoom moves a client from the hub to a specified room.
 func (h *Hub) MoveClientToRoom(clientID string, roomID string) error {
-	client, err := h.GetClient(clientID); if err != nil {
+	client, err := h.GetClient(clientID)
+	if err != nil {
 		return fmt.Errorf("unable to move client %s to room %s: %s", clientID, roomID, err)
 	}
-	room, err := h.GetRoom(roomID); if err != nil {
+	room, err := h.GetRoom(roomID)
+	if err != nil {
 		return fmt.Errorf("unable to move client %s to room %s: %s", clientID, roomID, err)
 	}
 
@@ -114,10 +119,12 @@ func (h *Hub) MoveClientToRoom(clientID string, roomID string) error {
 
 // MoveClientOutOfRoom moves a client from a specified room back to the hub.
 func (h *Hub) MoveClientOutOfRoom(clientID string, roomID string) error {
-	client, err := h.GetClient(clientID); if err != nil {
+	client, err := h.GetClient(clientID)
+	if err != nil {
 		return fmt.Errorf("unable to move client %s out of room %s: %s", clientID, roomID, err)
 	}
-	room, err := h.GetRoom(roomID); if err != nil {
+	room, err := h.GetRoom(roomID)
+	if err != nil {
 		return fmt.Errorf("unable to move client %s out of room %s: %s", clientID, roomID, err)
 	}
 
@@ -140,13 +147,15 @@ func (h *Hub) SendTo(recipient *Room, message *Message) error {
 // SendToAll sends a message to all clients.
 func (h *Hub) SendToAll(message *Message) error {
 	for _, room := range h.Rooms {
-		err := h.SendTo(room, message); if err != nil {
+		err := h.SendTo(room, message)
+		if err != nil {
 			return err
 		}
 	}
 
 	for _, client := range h.Clients {
-		err := SendMessageTo(client.Conn, message); if err != nil {
+		err := SendMessageTo(client.Conn, message)
+		if err != nil {
 			return err
 		}
 	}

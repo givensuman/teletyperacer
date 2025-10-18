@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 )
 
 func (r *Room) String() string {
@@ -18,12 +19,14 @@ func (r *Room) String() string {
 // Room represents a game room with its own clients and messaging.
 type Room struct {
 	MessageBroker[*Client]
-	ID        uuid.UUID
-	Hub       *Hub
-	Name      string
-	IsPrivate bool
-	Password  string
-	Clients   map[uuid.UUID]*Client
+	hub           *Hub
+	ID            uuid.UUID
+	Name          string
+	IsPrivate     bool
+	Password      string
+	Clients       map[uuid.UUID]*Client
+	ClientsByConn map[*websocket.Conn]*Client
+	eventHandlers map[string][]func(*Client, any)
 }
 
 // Room implements the IMessageBroker interface for Clients.
@@ -33,12 +36,14 @@ type Room struct {
 func (h *Hub) CreateRoom(name string) *Room {
 	id := uuid.New()
 	return &Room{
-		ID:        id,
-		Hub:       h,
-		Name:      name,
-		IsPrivate: false,
-		Password:  "",
-		Clients:   make(map[uuid.UUID]*Client),
+		hub:           h,
+		ID:            id,
+		Name:          name,
+		IsPrivate:     false,
+		Password:      "",
+		Clients:       make(map[uuid.UUID]*Client),
+		ClientsByConn: make(map[*websocket.Conn]*Client),
+		eventHandlers: make(map[string][]func(*Client, any)),
 	}
 }
 
@@ -56,6 +61,7 @@ func (r *Room) MakePublic() {
 
 // AddClient adds a new client to the Room.
 func (r *Room) AddClient(client *Client) {
+	client.SetRoom(r)
 	r.Clients[client.ID] = client
 }
 
@@ -80,7 +86,17 @@ func (r *Room) GetClient(clientID string) (*Client, error) {
 	return r.Clients[id], nil
 }
 
-// SendToClient sends a message to a specific client.
+// GetClientByConn retrieves a client by its connection.
+func (r *Room) GetClientByConn(conn *websocket.Conn) *Client {
+	return r.ClientsByConn[conn]
+}
+
+// On registers an event handler.
+func (r *Room) On(event string, handler func(*Client, any)) {
+	r.eventHandlers[event] = append(r.eventHandlers[event], handler)
+}
+
+// SendTo sends a message to a specific client.
 func (r *Room) SendTo(recipient *Client, message *Message) error {
 	err := SendMessageTo(recipient.Conn, message)
 	if err != nil {
@@ -101,10 +117,44 @@ func (r *Room) SendToAll(message *Message) error {
 		}
 	}
 
-	return err	
+	return err
 }
 
-// Run starts the room to listen for register, unregister, and broadcast requests.
+// Run starts the room to listen for register, unregister, receive, and send requests.
 func (r *Room) Run() {
-	// TODO
+	for {
+		select {
+		case client := <-r.Register:
+			r.AddClient(client)
+
+		case client := <-r.Unregister:
+			r.RemoveClient(client.ID.String())
+
+		case message := <-r.Receive:
+			client, err:= r.GetClient(message.SenderID.String())
+			if err != nil {
+				continue
+			}
+
+			if handlers, exists := r.eventHandlers[message.Event]; exists {
+				for _, handler := range handlers {
+					handler(client, message.Data)
+				}
+			}
+
+			// Handle callback if present
+			if message.CallbackID != nil {
+				ackMsg := &Message{
+					Event:      message.Event + "_ack",
+					Data:       []byte("Success"),
+					CallbackID: message.CallbackID,
+				}
+
+				r.Send <- ackMsg
+			}
+
+		case message := <-r.Send:
+			r.SendToAll(message)
+		}
+	}
 }

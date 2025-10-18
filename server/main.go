@@ -6,8 +6,9 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/givensuman/teletyperacer/sockets"
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
-	"server/sockets"
 )
 
 var upgrader = websocket.Upgrader{
@@ -86,11 +87,17 @@ func handleWebSocket(hub *sockets.Hub, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	room.RegisterClient(conn)
+	client := sockets.CreateClient(conn)
+	room.Register <- client
 
 	// Start a goroutine to read messages from the client
 	go func() {
-		defer func() { room.UnregisterClient(conn) }()
+		defer func() {
+			client := room.GetClientByConn(conn)
+			if client != nil {
+				room.Unregister <- client
+			}
+		}()
 		for {
 			_, rawMsg, err := conn.ReadMessage()
 			if err != nil {
@@ -105,30 +112,27 @@ func handleWebSocket(hub *sockets.Hub, w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 
-			client := room.GetClient(conn)
+			client := room.GetClientByConn(conn)
 			if client == nil {
 				log.Println("Client not found")
 				continue
+			}
+
+			var callbackID *uuid.UUID
+			if incoming.CallbackID != nil {
+				if id, err := uuid.Parse(*incoming.CallbackID); err == nil {
+					callbackID = &id
+				}
 			}
 
 			msg := &sockets.Message{
 				SenderID:   client.ID,
 				Event:      incoming.Event,
 				Data:       incoming.Data,
-				CallbackID: incoming.CallbackID,
+				CallbackID: callbackID,
 			}
 
-			room.Broadcast <- msg
-
-			// If callback, send ack back to sender
-			if incoming.CallbackID != nil {
-				ackMsg := &sockets.Message{
-					Event:      incoming.Event + "_ack",
-					Data:       "acknowledged",
-					CallbackID: incoming.CallbackID,
-				}
-				room.SendToClient(client.ID, ackMsg)
-			}
+			room.Receive <- msg
 		}
 	}()
 }
