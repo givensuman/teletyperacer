@@ -6,13 +6,13 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// Player is the exposed manner in which to interact with the WebSocket server.
-type Player struct {
+// Client is the exposed manner in which to interact with the WebSocket server.
+type Client struct {
 	client *client
 }
 
 // Connect establishes a socket connection.
-func Connect(url string) *Player {
+func Connect(url string) *Client {
 	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
 	if err != nil {
 		log.Fatal("Error connecting to WebSocket server")
@@ -22,11 +22,11 @@ func Connect(url string) *Player {
 	client := createClient(conn)
 	go client.Run()
 
-	return &Player{client}
+	return &Client{client}
 }
 
 type onEvent struct {
-	p     *Player
+	p     *Client
 	event string
 }
 
@@ -35,7 +35,7 @@ type onEventDone struct {
 }
 
 type emitEvent struct {
-	p     *Player
+	p     *Client
 	event string
 }
 
@@ -44,12 +44,12 @@ type emitEventDone struct {
 }
 
 // On declares what to do when a given event occurs.
-func (p *Player) On(event string) onEvent {
+func (p *Client) On(event string) onEvent {
 	return onEvent{p, event}
 }
 
 // Emit sends out a message for a given event.
-func (p *Player) Emit(message *Message) emitEvent {
+func (p *Client) Emit(message *Message) emitEvent {
 	p.client.sendMessage(message)
 
 	return emitEvent{p, message.Event}

@@ -37,13 +37,14 @@ type hub struct {
 	clients Clients
 	// Channels for room management
 	roomRegistration *RegistrationHandler[*room]
-	roomMessaging    *MessageHandler
 	// Channels for client management
 	clientRegistration *RegistrationHandler[*client]
 }
 
-// Hub implements the IMessageBroker interface for Rooms.
-// var _ IMessageBroker[*Room] = (*Hub)(nil)
+// Hub implements the RegistrationHandler interface
+// for clients and rooms.
+// var _ RegistrationHandler[*room] = (*hub)(nil)
+// var _ RegistrationHandler[*client) = (*hub)(nil)
 
 // CreateHub initializes a new Hub.
 func CreateHub() *hub {
@@ -51,7 +52,6 @@ func CreateHub() *hub {
 		rooms:              make(map[uuid.UUID]*room),
 		clients:            make(map[uuid.UUID]*client),
 		roomRegistration:   createRegistrationHandler[*room](),
-		roomMessaging:      createMessageHandler(),
 		clientRegistration: createRegistrationHandler[*client](),
 	}
 }
@@ -144,40 +144,20 @@ func (h *hub) MoveClientOutOfRoom(clientID string, roomID string) error {
 	return nil
 }
 
-// RegisterRoom registers a room with the hub.
-func (h *hub) RegisterRoom(room *room) {
-	h.roomRegistration.Register <- room
-}
+func (h *hub) handleRegistration() {
+	defer func() {
+		close(h.roomRegistration.Register)
+		close(h.roomRegistration.Unregister)
 
-// UnregisterRoom unregisters a room from the hub.
-func (h *hub) UnregisterRoom(room *room) {
-	h.roomRegistration.Unregister <- room
-}
+		close(h.clientRegistration.Register)
+		close(h.clientRegistration.Unregister)
+	}()
 
-// RegisterClient registers a client with the hub.
-func (h *hub) RegisterClient(client *client) {
-	h.clientRegistration.Register <- client
-}
-
-// UnregisterClient unregisters a client from the hub.
-func (h *hub) UnregisterClient(client *client) {
-	h.clientRegistration.Unregister <- client
-}
-
-// SendTo sends a message to all clients in a specified room.
-func (h *hub) SendTo(recipient *room, message *Message) error {
-	err := recipient.sendMessage(message)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (h *hub) Run() {
 	for {
 		select {
 		case room := <-h.roomRegistration.Register:
+			// TODO
+			// When are rooms created?
 			h.AddRoom(room)
 
 		case room := <-h.roomRegistration.Unregister:
@@ -190,4 +170,10 @@ func (h *hub) Run() {
 			h.RemoveClient(client.ID.String())
 		}
 	}
+}
+
+func (h *hub) Run() {
+	// TODO
+	// Handle services here.
+	go h.handleRegistration()
 }

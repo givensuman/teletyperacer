@@ -6,18 +6,33 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-type CanBeRegistered interface {
+type WrapsConnection interface {
 	*room | *client
+	// Run goroutine handles concurrent logic for active
+	// WebSocket connections.
+	Run()
+}
+
+// connection wraps a *websocket.Conn.
+type connection struct {
+	*websocket.Conn
+}
+
+// createConnection creates a new connection.
+func createConnection(conn *websocket.Conn) *connection {
+	conn.SetReadLimit(512)
+
+	return &connection{ conn }
 }
 
 // RegistrationHandler handles registration of a room or a client.
-type RegistrationHandler[T CanBeRegistered] struct {
+type RegistrationHandler[T WrapsConnection] struct {
 	Register   chan T
 	Unregister chan T
 }
 
 // createRegistrationHandler creates a new RegistrationHandler.
-func createRegistrationHandler[T CanBeRegistered]() *RegistrationHandler[T] {
+func createRegistrationHandler[T WrapsConnection]() *RegistrationHandler[T] {
 	return &RegistrationHandler[T]{
 		Register:   make(chan T),
 		Unregister: make(chan T),
@@ -25,17 +40,9 @@ func createRegistrationHandler[T CanBeRegistered]() *RegistrationHandler[T] {
 }
 
 // IClientRegistrationHandler defines the interface for client registrars.
-type IClientRegistrationHandler[T any] interface {
-	AddClient(client *client)
-	RemoveClient(client *client)
-	Run()
-}
-
-// IRoomRegistrationHandler defines the interface for room registrars.
-type IRoomRegistrationHandler interface {
-	AddRoom(room *room)
-	RemoveRoom(room *room)
-	Run()
+type IRegistrationHandler[T WrapsConnection] interface {
+	// handleRegistration goroutine handles incoming connections.
+	handleRegistration()
 }
 
 // MessageHandler handles sending and receiving messages to a room or client.
@@ -53,16 +60,7 @@ func createMessageHandler() *MessageHandler {
 }
 
 // IMessageHandler defines the interface for passing messages.
-type IMessageHandler[T any] interface {
-	SendMessage(message *Message, args... []any)
-	ReceiveMessage(message *Message, args... []any)
-	Run()
-}
-
-type connection struct {
-	*websocket.Conn
-}
-
-func createConnection(conn *websocket.Conn) *connection {
-	return &connection{ conn }
+type IMessageHandler interface {
+	// handleMessage goroutine handles incoming messages to connection.
+	handleMessage()
 }

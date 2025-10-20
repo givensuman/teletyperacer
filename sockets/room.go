@@ -2,7 +2,6 @@ package sockets
 
 import (
 	"errors"
-	"log"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -31,7 +30,9 @@ type room struct {
 	Name      string
 	IsPrivate bool
 	Password  string
-	Clients   map[uuid.UUID]*client
+	Clients   Clients
+	// done acts as a kill switch for concurrent operations.
+	done      chan any
 }
 
 // room implements the following interfaces.
@@ -53,7 +54,6 @@ func (h *hub) createRoom(name string, conn *websocket.Conn) *room {
 		Clients:             make(map[uuid.UUID]*client),
 	}
 
-	h.RegisterRoom(room)
 	return room
 }
 
@@ -85,6 +85,7 @@ func (r *room) removeClient(clientID string) error {
 	if exists {
 		delete(r.Clients, id)
 	}
+
 	return nil
 }
 
@@ -122,17 +123,43 @@ func (r *room) sendMessage(message *Message) error {
 	return errors.Join(errs...)
 }
 
-// Run starts the room to listen for register, unregister, receive, and send requests.
-func (r *room) Run() {
+func (r *room) handleRegistration() {
+	defer func() {
+		close(r.Register)
+		close(r.Unregister)
+	}()
+
 	for {
 		select {
+		case _ = <-r.done:
+			return
+
 		case client := <-r.Register:
 			r.addClient(client)
 
 		case client := <-r.Unregister:
 			r.removeClient(client.ID.String())
+		}
+	}
+}
+
+func (r *room) handleMessage() {
+	defer func() {
+		close(r.Send)
+		close(r.Receive)
+	}()
+
+	for {
+		select {
+		case _ = <-r.done:
+			return
+
+		case message := <-r.Send:
+			r.sendMessage(message)
 
 		case message := <-r.Receive:
+			// On receipt of a message, forward it to all
+			// other connected clients.
 			client, err := r.getClient(message.SenderID.String())
 			if err != nil {
 				continue
@@ -145,21 +172,25 @@ func (r *room) Run() {
 			}
 
 			r.Send <- message
+		}
+	}
+}
 
-		case message := <-r.Send:
-			r.sendMessage(message)
+// Run starts the room to listen for register, unregister, receive, and send requests.
+func (r *room) Run() {
+	go r.handleRegistration()
+	go r.handleMessage()
+
+	defer r.Conn.Close()
+	for {
+		_, rawMessage, err := r.Conn.ReadMessage()
+		if err != nil {
+			fmt.Printf("Unexpected error: %s", err)
 		}
 
-		_, msg, err := r.Conn.ReadMessage()
+		message, err := parseMessage(rawMessage)
 		if err != nil {
-			log.Println("Error in reading message", err)
-			continue
-		}
-
-		message, err := parseMessage(msg) 
-		if err != nil {
-			log.Println("Error in parsing message", err)
-			continue
+			fmt.Printf("Parse error: %s", err)
 		}
 
 		r.Receive <- message
