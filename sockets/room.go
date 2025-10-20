@@ -1,13 +1,15 @@
-package main
+package sockets
 
 import (
+	"errors"
+	"log"
 	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
 
-func (r *Room) String() string {
+func (r *room) String() string {
 	return fmt.Sprintf(`{
 	ID: %s,
 	Name: %s
@@ -16,68 +18,78 @@ func (r *Room) String() string {
 }`, r.ID, r.Name, r.IsPrivate, r.Password)
 }
 
-// Room represents a game room with its own clients and messaging.
-type Room struct {
-	MessageBroker[*Client]
-	hub           *Hub
-	ID            uuid.UUID
-	Name          string
-	IsPrivate     bool
-	Password      string
-	Clients       map[uuid.UUID]*Client
-	ClientsByConn map[*websocket.Conn]*Client
-	eventHandlers map[string][]func(*Client, any)
+// room represents a game room with its own clients and messaging.
+// A room can receive messages from a client, and distribute it to
+// other clients in the same room.
+// A room must be registered by a hub.
+type room struct {
+	*MessageHandler[*client]
+	*RegistrationHandler[*client]
+	hub       *hub
+	ID        uuid.UUID
+	Conn      *connection
+	Name      string
+	IsPrivate bool
+	Password  string
+	Clients   map[uuid.UUID]*client
 }
 
-// Room implements the IMessageBroker interface for Clients.
-// var _ IMessageBroker[*Client] = (*Room)(nil)
+// room implements the following interfaces.
+// var _ IClientRegistrationHandler = (*room)(nil)
+// var _ IMessageHandler[*client] = (*room)(nil)
 
-// CreateRoom initializes a new Room.
-func (h *Hub) CreateRoom(name string) *Room {
+// createRoom initializes a new Room.
+func (h *hub) createRoom(name string, conn *websocket.Conn) *room {
 	id := uuid.New()
-	return &Room{
-		hub:           h,
-		ID:            id,
-		Name:          name,
-		IsPrivate:     false,
-		Password:      "",
-		Clients:       make(map[uuid.UUID]*Client),
-		ClientsByConn: make(map[*websocket.Conn]*Client),
-		eventHandlers: make(map[string][]func(*Client, any)),
+	room := &room{
+		MessageHandler:      createMessageHandler[*client](),
+		RegistrationHandler: createRegistrationHandler[*client](),
+		hub:                 h,
+		ID:                  id,
+		Conn:                createConnection(conn),
+		Name:                name,
+		IsPrivate:           false,
+		Password:            "",
+		Clients:             make(map[uuid.UUID]*client),
 	}
+
+	h.RegisterRoom(room)
+	return room
 }
 
-// MakePrivate sets the room to private with the given password.
-func (r *Room) MakePrivate(password string) {
+// makePrivate sets the room to private with the given password.
+func (r *room) makePrivate(password string) {
 	r.IsPrivate = true
 	r.Password = password
 }
 
-// MakePublic sets the room to public and clears the password.
-func (r *Room) MakePublic() {
+// makePublic sets the room to public and clears the password.
+func (r *room) makePublic() {
 	r.IsPrivate = false
 	r.Password = ""
 }
 
-// AddClient adds a new client to the Room.
-func (r *Room) AddClient(client *Client) {
-	client.SetRoom(r)
+// addClient adds a new client to the Room.
+func (r *room) addClient(client *client) {
 	r.Clients[client.ID] = client
 }
 
-// RemoveClient removes a client from the Room.
-func (r *Room) RemoveClient(clientID string) error {
+// removeClient removes a client from the Room.
+func (r *room) removeClient(clientID string) error {
 	id, err := uuid.Parse(clientID)
 	if err != nil {
 		return fmt.Errorf("unable to parse clientID %s in hub.RemoveClient call: %s", clientID, err)
 	}
 
-	delete(r.Clients, id)
+	_, exists := r.Clients[id]
+	if exists {
+		delete(r.Clients, id)
+	}
 	return nil
 }
 
-// GetClient retrieves a client by its ID.
-func (r *Room) GetClient(clientID string) (*Client, error) {
+// getClient retrieves a client by its ID.
+func (r *room) getClient(clientID string) (*client, error) {
 	id, err := uuid.Parse(clientID)
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse clientID %s in hub.GetRoom call: %s", clientID, err)
@@ -86,75 +98,70 @@ func (r *Room) GetClient(clientID string) (*Client, error) {
 	return r.Clients[id], nil
 }
 
-// GetClientByConn retrieves a client by its connection.
-func (r *Room) GetClientByConn(conn *websocket.Conn) *Client {
-	return r.ClientsByConn[conn]
+// respondTo sends a mesasge response to a specific client.
+func (r *room) respondTo(sender *client, messageResponse *MessageResponse) error {
+	err := r.Conn.sendMessageTo(sender.Conn, messageResponse)
+	return err
 }
 
-// On registers an event handler.
-func (r *Room) On(event string, handler func(*Client, any)) {
-	r.eventHandlers[event] = append(r.eventHandlers[event], handler)
-}
+// sendMessage sends a message to all clients in the room.
+func (r *room) sendMessage(message *Message) error {
+	var errs []error
+	for clientID, client := range r.Clients {
+		if message.SenderID == clientID {
+			continue
+		}
 
-// SendTo sends a message to a specific client.
-func (r *Room) SendTo(recipient *Client, message *Message) error {
-	err := SendMessageTo(recipient.Conn, message)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// SendToAll sends a message to all clients in the room.
-func (r *Room) SendToAll(message *Message) error {
-	var err error
-	for _, client := range r.Clients {
-		err = SendMessageTo(client.Conn, message)
+		err := r.Conn.sendMessageTo(client.Conn, message)
 		if err != nil {
-			fmt.Printf("unable to send message to client %s in room.SendToAll call: %s", client, err)
+			errs = append(errs, fmt.Errorf("unable to send message to client %s in room.sendMessage call: %s", client, err))
 			continue
 		}
 	}
 
-	return err
+	return errors.Join(errs...)
 }
 
 // Run starts the room to listen for register, unregister, receive, and send requests.
-func (r *Room) Run() {
+func (r *room) Run() {
 	for {
 		select {
 		case client := <-r.Register:
-			r.AddClient(client)
+			r.addClient(client)
 
 		case client := <-r.Unregister:
-			r.RemoveClient(client.ID.String())
+			r.removeClient(client.ID.String())
 
 		case message := <-r.Receive:
-			client, err:= r.GetClient(message.SenderID.String())
+			client, err := r.getClient(message.SenderID.String())
 			if err != nil {
 				continue
 			}
 
-			if handlers, exists := r.eventHandlers[message.Event]; exists {
-				for _, handler := range handlers {
-					handler(client, message.Data)
-				}
+			if message.Respond {
+				r.respondTo(client, &MessageResponse{
+					Event: message.Event,
+				})
 			}
 
-			// Handle callback if present
-			if message.CallbackID != nil {
-				ackMsg := &Message{
-					Event:      message.Event + "_ack",
-					Data:       []byte("Success"),
-					CallbackID: message.CallbackID,
-				}
-
-				r.Send <- ackMsg
-			}
+			r.Send <- message
 
 		case message := <-r.Send:
-			r.SendToAll(message)
+			r.sendMessage(message)
 		}
+
+		_, msg, err := r.Conn.ReadMessage()
+		if err != nil {
+			log.Println("Error in reading message", err)
+			continue
+		}
+
+		message, err := parseMessage(msg) 
+		if err != nil {
+			log.Println("Error in parsing message", err)
+			continue
+		}
+
+		r.Receive <- message
 	}
 }

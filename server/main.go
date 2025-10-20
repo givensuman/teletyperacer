@@ -125,10 +125,11 @@ func handleWebSocket(hub *sockets.Hub, w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
+			dataBytes, _ := json.Marshal(incoming.Data)
 			msg := &sockets.Message{
 				SenderID:   client.ID,
 				Event:      incoming.Event,
-				Data:       incoming.Data,
+				Data:       dataBytes,
 				CallbackID: callbackID,
 			}
 
@@ -139,6 +140,7 @@ func handleWebSocket(hub *sockets.Hub, w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	h := sockets.CreateHub()
+	go h.Run()
 
 	http.HandleFunc("/rooms", func(w http.ResponseWriter, r *http.Request) {
 		handleCreateRoom(h, w, r)
