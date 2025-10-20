@@ -1,7 +1,28 @@
 package sockets
 
+import (
+	"log"
+
+	"github.com/gorilla/websocket"
+)
+
+// Player is the exposed manner in which to interact with the WebSocket server.
 type Player struct {
 	client *client
+}
+
+// Connect establishes a socket connection.
+func Connect(url string) *Player {
+	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+	if err != nil {
+		log.Fatal("Error connecting to WebSocket server")
+	}
+	defer conn.Close()
+
+	client := createClient(conn)
+	go client.Run()
+
+	return &Player{client}
 }
 
 type onEvent struct {

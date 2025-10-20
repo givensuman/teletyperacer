@@ -49,11 +49,11 @@ func parseMessage(data []byte) (*Message, error) {
 
 // CreateMessage creates a new message for a client.
 func (c *client) CreateMessage(event string, data []byte) *Message {
-	return &Message {
+	return &Message{
 		SenderID: c.ID,
-		Event: event,
-		Data: data,
-		Respond: false,
+		Event:    event,
+		Data:     data,
+		Respond:  false,
 	}
 }
 

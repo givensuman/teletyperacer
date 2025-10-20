@@ -24,7 +24,7 @@ type client struct {
 }
 
 // createClient initializes a new Client.
-func (h *hub) createClient(conn *websocket.Conn) *client {
+func createClient(conn *websocket.Conn) *client {
 	return &client{
 		room:          nil,
 		ID:            uuid.New(),
