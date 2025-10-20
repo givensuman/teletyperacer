@@ -37,7 +37,7 @@ type hub struct {
 	clients Clients
 	// Channels for room management
 	roomRegistration *RegistrationHandler[*room]
-	roomMessaging    *MessageHandler[*room]
+	roomMessaging    *MessageHandler
 	// Channels for client management
 	clientRegistration *RegistrationHandler[*client]
 }
@@ -51,7 +51,7 @@ func CreateHub() *hub {
 		rooms:              make(map[uuid.UUID]*room),
 		clients:            make(map[uuid.UUID]*client),
 		roomRegistration:   createRegistrationHandler[*room](),
-		roomMessaging:      createMessageHandler[*room](),
+		roomMessaging:      createMessageHandler(),
 		clientRegistration: createRegistrationHandler[*client](),
 	}
 }

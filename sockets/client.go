@@ -15,7 +15,7 @@ func (c *client) String() string {
 // A client can send and receive messages to/from a room.
 // A client must be registered by either a room or a hub, but not both.
 type client struct {
-	MessageHandler[*room]
+	MessageHandler
 	room          *room
 	ID            uuid.UUID
 	Conn          *connection

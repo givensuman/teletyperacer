@@ -23,7 +23,7 @@ func (r *room) String() string {
 // other clients in the same room.
 // A room must be registered by a hub.
 type room struct {
-	*MessageHandler[*client]
+	*MessageHandler
 	*RegistrationHandler[*client]
 	hub       *hub
 	ID        uuid.UUID
@@ -42,7 +42,7 @@ type room struct {
 func (h *hub) createRoom(name string, conn *websocket.Conn) *room {
 	id := uuid.New()
 	room := &room{
-		MessageHandler:      createMessageHandler[*client](),
+		MessageHandler:      createMessageHandler(),
 		RegistrationHandler: createRegistrationHandler[*client](),
 		hub:                 h,
 		ID:                  id,

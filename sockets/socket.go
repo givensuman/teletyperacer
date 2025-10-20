@@ -3,9 +3,6 @@
 package sockets
 
 import (
-	"encoding/json"
-	"fmt"
-
 	"github.com/gorilla/websocket"
 )
 
@@ -42,14 +39,14 @@ type IRoomRegistrationHandler interface {
 }
 
 // MessageHandler handles sending and receiving messages to a room or client.
-type MessageHandler[T any] struct {
+type MessageHandler struct {
 	Send    chan *Message
 	Receive chan *Message
 }
 
 // createMessageHandler creates a new MessageBroker.
-func createMessageHandler[T any]() *MessageHandler[T] {
-	return &MessageHandler[T]{
+func createMessageHandler() *MessageHandler {
+	return &MessageHandler{
 		Send:    make(chan *Message),
 		Receive: make(chan *Message),
 	}
