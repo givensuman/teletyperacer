@@ -1,9 +1,8 @@
 .PHONY: build server client multiplayer
 
-# TODO
-# Will need a better way to handle this 
-# in the future
-TERM = cosmic-term
+.PHONY: dev
+dev:
+	(cd client && go run main.go);
 
 .PHONY: test
 test:
@@ -21,6 +20,11 @@ server: # Spin up the server
 client: # Spin up the client
 	docker compose run --rm client
 
+# TODO
+# Will need a better way to handle this 
+# in the future
+
+TERM = cosmic-term
 .PHONY: multiplayer
 multiplayer: # Spin up two clients and one server
 	docker compose up -d server
