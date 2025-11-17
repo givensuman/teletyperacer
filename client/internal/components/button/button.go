@@ -2,9 +2,7 @@
 package button
 
 import (
-	"fmt"
-
-	"github.com/charmbracelet/bubbletea"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/givensuman/teletyperacer/client/internal/constants/colors"
@@ -13,7 +11,6 @@ import (
 type Model struct {
 	Index      int
 	Label      string
-	Action     func()
 	IsFocused  bool
 	IsDisabled bool
 	Style      lipgloss.Style
@@ -22,60 +19,56 @@ type Model struct {
 
 var _ tea.Model = Model{}
 
-func New(index int, label string, action func()) Model {
+func New(index int, label string) Model {
 	return Model{
 		Index:      index,
 		Label:      label,
-		Action:     action,
 		IsFocused:  false,
 		IsDisabled: false,
 		Style: lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder()).
-			Padding(1, 1).
-			Foreground(lipgloss.ANSIColor(colors.Black)).
-			Background(lipgloss.ANSIColor(colors.Blue)),
-		FocusStyle: lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder()).
-			Padding(1, 1).
+			AlignHorizontal(lipgloss.Center).
+			Border(lipgloss.RoundedBorder()).
+			Margin(1, 1).
 			Foreground(lipgloss.ANSIColor(colors.White)).
-			Background(lipgloss.ANSIColor(colors.Grey)),
+			Faint(true),
+		FocusStyle: lipgloss.NewStyle().
+			AlignHorizontal(lipgloss.Center).
+			Border(lipgloss.RoundedBorder()).
+			Margin(1, 1).
+			Foreground(lipgloss.ANSIColor(colors.White)).
+			Bold(true),
 	}
 }
-
-func (m *Model) WithStyle(style lipgloss.Style) {
-	m.Style = style
-}
-
-func (m *Model) WithFocusStyle(style lipgloss.Style) {
-	m.FocusStyle = style
-}
-
-type FocusMsg bool
-const (
-	Focus FocusMsg = true
-	Unfocus FocusMsg = false
-)
-
 
 func (m Model) Init() tea.Cmd {
 	return nil
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		if msg.Type == tea.KeyEnter && m.IsFocused && m.Action != nil {
-			go m.Action()
+	switch msg {
 
-			return m, nil
-		}
+	default:
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			if msg.Type == tea.KeyEnter && m.IsFocused && !m.IsDisabled {
+				return m, func() tea.Msg {
+					return ButtonClickedMsg{Index: m.Index}
+				}
+			}
 
-	case FocusMsg:
-		switch msg {
-		case Focus:
-			m.IsFocused = true
-		case Unfocus:
-			m.IsFocused = false
+		case FocusMsg:
+			if msg.Focus == m.Index {
+				m.IsFocused = true
+			} else if msg.Unfocus == m.Index {
+				m.IsFocused = false
+			}
+
+		case DisableMsg:
+			m.IsDisabled = bool(msg)
+
+		case WidthMsg:
+			m.Style = m.Style.Width(int(msg))
+			m.FocusStyle = m.FocusStyle.Width(int(msg))
 		}
 	}
 
@@ -87,5 +80,5 @@ func (m Model) View() string {
 		return m.FocusStyle.Render(m.Label)
 	}
 
-	return m.Style.Render(m.Label, fmt.Sprintf("%b", m.IsFocused))
+	return m.Style.Render(m.Label)
 }
