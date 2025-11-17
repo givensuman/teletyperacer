@@ -1,75 +1,141 @@
-// Package tui represents the root of the TUI application
+// Package tui defines the different
+// screens which may be rendered
 package tui
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-
-	"github.com/givensuman/teletyperacer/client/internal/constants/view"
-	"github.com/givensuman/teletyperacer/client/internal/tui/game"
-	"github.com/givensuman/teletyperacer/client/internal/tui/home"
-	"github.com/givensuman/teletyperacer/client/internal/tui/host"
-	"github.com/givensuman/teletyperacer/client/internal/tui/lobby"
-	"github.com/givensuman/teletyperacer/client/internal/tui/practice"
 )
 
-type Model struct {
-	width       int
-	height      int
-	currentView view.View
-	models      map[view.View]tea.Model
+type Screen int
+
+const (
+	HomeScreen Screen = iota
+	HostScreen
+	PracticeScreen
+)
+
+var viewableScreens map[Screen]tea.Model = map[Screen]tea.Model{
+	HomeScreen:     NewHome(),
+	HostScreen:     NewHost(),
+	PracticeScreen: NewPractice(),
 }
 
-var models map[view.View]tea.Model = map[view.View]tea.Model{
-	view.Home:            home.New(),
-	view.HostOptions:     host.NewOptions(),
-	view.Lobby:           lobby.New(),
-	view.PracticeOptions: practice.NewOptions(),
-	view.Practice:        practice.New(),
-	view.Game:            game.New(),
+type Model struct {
+	width  int
+	height int
+	// Currently rendered screen
+	screen Screen
+	// Child models
+	home,
+	host,
+	practice tea.Model
 }
 
 func New() Model {
 	return Model{
-		currentView: view.Home,
-		models:      models,
+		screen:   HomeScreen,
+		home:     NewHome(),
+		host:     NewHost(),
+		practice: NewPractice(),
 	}
 }
 
-var _ tea.Model = Model{}
-
-func (m Model) getCurrentModel() tea.Model {
-	return m.models[m.currentView]
-}
-
 func (m Model) Init() tea.Cmd {
-	return nil
+	return m.home.Init()
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		if msg.String() == tea.KeyCtrlC.String() {
-			return m, tea.Quit
-		} else {
-			model, _ := m.getCurrentModel().Update(msg)
-			m.models[m.currentView] = model
-		}
-
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
 
-	case view.NavigateMsg:
-		m.currentView = view.View(msg)
+		return m, nil
 	}
 
-	return m, nil
+	switch m.screen {
+	case HomeScreen:
+		return m.updateHome(msg)
+	case HostScreen:
+		return m.updateHost(msg)
+	case PracticeScreen:
+		return m.updatePractice(msg)
+	default:
+		return m, nil
+	}
 }
 
-var style lipgloss.Style = lipgloss.NewStyle().
-	AlignHorizontal(lipgloss.Center)
+func (m Model) updateHome(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "q", "ctrl+c":
+			return m, tea.Quit
+		}
+	case ScreenChangeMsg:
+		m.screen = msg.Screen
+		return m, nil
+	}
+
+	var cmd tea.Cmd
+	m.home, cmd = m.home.Update(msg)
+	return m, cmd
+}
+
+func (m Model) updateHost(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "q", "ctrl+c":
+			return m, tea.Quit
+		case "esc":
+			m.screen = HomeScreen
+			return m, nil
+		}
+	}
+	var cmd tea.Cmd
+	m.host, cmd = m.host.Update(msg)
+	return m, cmd
+}
+
+func (m Model) updatePractice(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "q", "ctrl+c":
+			return m, tea.Quit
+		case "esc":
+			m.screen = HomeScreen
+			return m, nil
+		}
+	}
+	var cmd tea.Cmd
+	m.practice, cmd = m.practice.Update(msg)
+	return m, cmd
+}
 
 func (m Model) View() string {
-	return style.Width(m.width).Height(m.height).Render(m.getCurrentModel().View())
+	var content string
+	switch m.screen {
+	case HomeScreen:
+		content = m.home.View()
+	case HostScreen:
+		content = m.host.View()
+	case PracticeScreen:
+		content = m.practice.View()
+	default:
+		return m.home.View()
+	}
+
+	return lipgloss.NewStyle().
+		AlignVertical(lipgloss.Center).
+		AlignHorizontal(lipgloss.Center).
+		Width(m.width).
+		Height(m.height).
+		Render(content)
+}
+
+type ScreenChangeMsg struct {
+	Screen Screen
 }
