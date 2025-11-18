@@ -9,7 +9,6 @@ const (
 	Unfocus FocusMsg = false
 )
 
-
 // DisableMsg describes a tea.Msg on a button's
 // disabled state
 type DisableMsg bool

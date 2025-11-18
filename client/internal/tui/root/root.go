@@ -6,6 +6,7 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	zone "github.com/lrstanley/bubblezone"
 
 	sockets "github.com/givensuman/go-sockets/client"
 	"github.com/givensuman/teletyperacer/client/internal/tui"
@@ -138,7 +139,7 @@ func (m Model) View() string {
 	case tui.PracticeScreen:
 		content = m.practice.View()
 	default:
-		return m.home.View()
+		return zone.Scan(m.home.View())
 	}
 
 	if m.status == tui.Connecting {
@@ -148,18 +149,18 @@ func (m Model) View() string {
 			Width(m.width).
 			Height(m.height).
 			Render("Connecting to server...\n" + m.spinner.View())
-		return lipgloss.NewStyle().
+		return zone.Scan(lipgloss.NewStyle().
 			AlignVertical(lipgloss.Center).
 			AlignHorizontal(lipgloss.Center).
 			Width(m.width).
 			Height(m.height).
-			Render(content + "\n\n" + spinnerView)
+			Render(content + "\n\n" + spinnerView))
 	}
 
-	return lipgloss.NewStyle().
+	return zone.Scan(lipgloss.NewStyle().
 		AlignVertical(lipgloss.Center).
 		AlignHorizontal(lipgloss.Center).
 		Width(m.width).
 		Height(m.height).
-		Render(content)
+		Render(content))
 }
