@@ -1,8 +1,14 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	sockets "github.com/givensuman/go-sockets/server"
 )
@@ -20,6 +26,10 @@ func main() {
 	})
 
 	mux := http.NewServeMux()
+	httpServer := &http.Server{
+		Addr:    ":3000",
+		Handler: server,
+	}
 
 	// Mount websocket server on /ws/
 	mux.Handle("/ws/", server)
@@ -30,5 +40,23 @@ func main() {
 		w.Write([]byte("OK"))
 	})
 
-	log.Fatal(http.ListenAndServe(":3000", mux))
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		<-sigChan
+		fmt.Println("Gracefully shutting down...")
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		if err := httpServer.Shutdown(ctx); err != nil {
+			log.Fatalf("HTTP server did not close gracefully: %v", err)
+		}
+
+		os.Exit(0)
+	}()
+
+	if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Fatalf("HTTP server error: %v", err)
+	}
 }

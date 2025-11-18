@@ -3,13 +3,13 @@ package main
 import (
 	"github.com/charmbracelet/bubbletea"
 
-	"github.com/givensuman/teletyperacer/client/internal/tui"
+	"github.com/givensuman/teletyperacer/client/internal/tui/root"
 )
 
 // https://github.com/givensuman/teletyperacer
 func main() {
 	p := tea.NewProgram(
-		tui.New(),
+		root.New(),
 		tea.WithAltScreen(),
 	)
 
