@@ -21,7 +21,7 @@ func NewHome() HomeModel {
 	return HomeModel{
 		cursor: 0,
 		choices: [4]button.Model{
-			button.NewButton("Join", nil),
+			button.NewFocusedButton("Join", nil),
 			button.NewButton("Host", func() tea.Msg { return tui.ScreenChangeMsg{Screen: tui.HostScreen} }),
 			button.NewButton("Practice", func() tea.Msg { return tui.ScreenChangeMsg{Screen: tui.PracticeScreen} }),
 			button.NewButton("Quit", tea.Quit),
@@ -57,7 +57,7 @@ func (m HomeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		return m, nil
-	
+
 	case button.WidthMsg:
 		for i, btn := range m.choices {
 			updatedBtn, _ := btn.Update(msg)
@@ -105,9 +105,11 @@ func (m HomeModel) View() string {
 		views = append(views, btn.View())
 	}
 
+	buttons := lipgloss.JoinVertical(lipgloss.Center, views...)
+
 	return lipgloss.NewStyle().
 		Padding(1).
 		AlignVertical(lipgloss.Center).
 		AlignHorizontal(lipgloss.Center).
-		Render(views...)
+		Render(buttons)
 }

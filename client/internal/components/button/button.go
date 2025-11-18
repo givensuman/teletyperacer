@@ -25,14 +25,21 @@ func NewButton(label string, action tea.Cmd) Model {
 		isDisabled: false,
 		style: lipgloss.NewStyle().
 			Foreground(lipgloss.ANSIColor(lipgloss.White)).
-			Background(lipgloss.ANSIColor(lipgloss.BrightBlack)).
-			Faint(true),
+			Faint(true).
+			Align(lipgloss.Center),
 
 		focusStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.ANSIColor(lipgloss.Black)).
-			Background(lipgloss.ANSIColor(lipgloss.BrightBlue)).
-			Bold(true),
+			Foreground(lipgloss.ANSIColor(lipgloss.Blue)).
+			Bold(true).
+			Align(lipgloss.Center),
 	}
+}
+
+func NewFocusedButton(label string, action tea.Cmd) Model {
+	m := NewButton(label, action)
+	m.isFocused = true
+
+	return m
 }
 
 func (m Model) GetAction() tea.Cmd {
