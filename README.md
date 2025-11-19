@@ -19,7 +19,7 @@ npm install -g teletyperacer
 
 The `npm` package is automatically built through GitHub Actions.
 
-Or, install it with Go:
+Or, install it with Go. Note some functionality may be disabled in out-of-date installs:
 
 ```bash
 go install github.com/givensuman/teletyperacer
@@ -35,3 +35,5 @@ cd teletyperacer && go build
 ### Acknowledgements
 
 The original [typeracer](https://play.typeracer.com/) game and concept was created by Alex Epshteyn. It's free to play and you should check it out if you haven't!
+
+The `practice` mode is heavily inspired by [monkeytype](https://monkeytype.com), another fantastic project worth your attention.
