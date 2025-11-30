@@ -9,13 +9,14 @@ import (
 	zone "github.com/lrstanley/bubblezone"
 
 	sockets "github.com/givensuman/go-sockets/client"
+	"github.com/givensuman/teletyperacer/client/internal/components/alert"
+	"github.com/givensuman/teletyperacer/client/internal/components/roominput"
+	"github.com/givensuman/teletyperacer/client/internal/store"
 	"github.com/givensuman/teletyperacer/client/internal/tui"
 	"github.com/givensuman/teletyperacer/client/internal/tui/screens"
 )
 
 type Model struct {
-	width  int
-	height int
 	// Currently rendered screen
 	screen tui.Screen
 	// Child models
@@ -24,8 +25,58 @@ type Model struct {
 	practice tea.Model
 	// WebSocket connection
 	socket  *sockets.Socket
-	status  tui.ConnectionStatus
 	spinner spinner.Model
+	// Alert overlay
+	alert     tea.Model
+	showAlert bool
+	// Room input overlay
+	roomInput     tea.Model
+	showRoomInput bool
+}
+
+type backgroundModel struct {
+	root *Model
+}
+
+func (b backgroundModel) Init() tea.Cmd { return nil }
+
+func (b backgroundModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) { return b, nil }
+
+func (b backgroundModel) View() string {
+	var content string
+	switch b.root.screen {
+	case tui.HomeScreen:
+		content = b.root.home.View()
+	case tui.HostScreen:
+		content = b.root.host.View()
+	case tui.PracticeScreen:
+		content = b.root.practice.View()
+	default:
+		content = b.root.home.View()
+	}
+
+	store := store.GetStore()
+	if store.ConnectionStatus == tui.Connecting {
+		spinnerView := lipgloss.NewStyle().
+			AlignVertical(lipgloss.Center).
+			AlignHorizontal(lipgloss.Center).
+			Width(store.Width).
+			Height(store.Height).
+			Render("Connecting to server...\n" + b.root.spinner.View())
+		return zone.Scan(lipgloss.NewStyle().
+			AlignVertical(lipgloss.Center).
+			AlignHorizontal(lipgloss.Center).
+			Width(store.Width).
+			Height(store.Height).
+			Render(content + "\n\n" + spinnerView))
+	}
+
+	return zone.Scan(lipgloss.NewStyle().
+		AlignVertical(lipgloss.Center).
+		AlignHorizontal(lipgloss.Center).
+		Width(store.Width).
+		Height(store.Height).
+		Render(content))
 }
 
 func New() Model {
@@ -35,19 +86,22 @@ func New() Model {
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 
-	status := tui.Connected
+	store := store.GetStore()
 	if err != nil {
-		status = tui.Failed
+		store.ConnectionStatus = tui.Failed
+	} else {
+		store.ConnectionStatus = tui.Connected
 	}
 
 	return Model{
-		screen:   tui.HomeScreen,
-		home:     screens.NewHome(),
-		host:     screens.NewHost(),
-		practice: screens.NewPractice(),
-		socket:   socket,
-		status:   status,
-		spinner:  s,
+		screen:        tui.HomeScreen,
+		home:          screens.NewHome(),
+		host:          screens.NewHost(),
+		practice:      screens.NewPractice(),
+		socket:        socket,
+		spinner:       s,
+		showAlert:     false,
+		showRoomInput: false,
 	}
 }
 
@@ -58,13 +112,56 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
+		store := store.GetStore()
+		store.Width = msg.Width
+		store.Height = msg.Height
 		return m, nil
 
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
+
+	case tui.ConnectionStatusMsg:
+		store := store.GetStore()
+		store.ConnectionStatus = msg.Status
+		return m, nil
+
+	case alert.ShowMsg:
+		m.alert = alert.NewAlert(msg.Title, msg.Message, msg.Buttons...)
+		m.showAlert = true
+		return m, nil
+
+	case alert.HideMsg:
+		m.showAlert = false
+		return m, nil
+
+	case roominput.ShowMsg:
+		m.roomInput = roominput.NewRoomInput()
+		store := store.GetStore()
+		m.roomInput, _ = m.roomInput.Update(tea.WindowSizeMsg{Width: store.Width, Height: store.Height})
+		m.showRoomInput = true
+		return m, m.roomInput.Init()
+
+	case roominput.HideMsg:
+		m.showRoomInput = false
+		return m, nil
+
+	case roominput.JoinRoomMsg:
+		// TODO: Handle joining room with code
+		m.showRoomInput = false
+		return m, nil
+	}
+
+	if m.showAlert {
+		var cmd tea.Cmd
+		m.alert, cmd = m.alert.Update(msg)
+		return m, cmd
+	}
+
+	if m.showRoomInput {
+		var cmd tea.Cmd
+		m.roomInput, cmd = m.roomInput.Update(msg)
 		return m, cmd
 	}
 
@@ -83,8 +180,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) updateHome(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "q", "ctrl+c":
+		switch msg.Type {
+		case tea.KeyCtrlC:
 			return m, tea.Quit
 		}
 	case tui.ScreenChangeMsg:
@@ -117,7 +214,7 @@ func (m Model) updatePractice(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "q", "ctrl+c":
+		case "ctrl+c":
 			return m, tea.Quit
 		case "esc":
 			m.screen = tui.HomeScreen
@@ -139,28 +236,47 @@ func (m Model) View() string {
 	case tui.PracticeScreen:
 		content = m.practice.View()
 	default:
-		return zone.Scan(m.home.View())
+		content = m.home.View()
 	}
 
-	if m.status == tui.Connecting {
+	store := store.GetStore()
+	if store.ConnectionStatus == tui.Connecting {
 		spinnerView := lipgloss.NewStyle().
 			AlignVertical(lipgloss.Center).
 			AlignHorizontal(lipgloss.Center).
-			Width(m.width).
-			Height(m.height).
+			Width(store.Width).
+			Height(store.Height).
 			Render("Connecting to server...\n" + m.spinner.View())
+		content = lipgloss.NewStyle().
+			AlignVertical(lipgloss.Center).
+			AlignHorizontal(lipgloss.Center).
+			Width(store.Width).
+			Height(store.Height).
+			Render(content + "\n\n" + spinnerView)
+	}
+
+	if m.showAlert {
 		return zone.Scan(lipgloss.NewStyle().
 			AlignVertical(lipgloss.Center).
 			AlignHorizontal(lipgloss.Center).
-			Width(m.width).
-			Height(m.height).
-			Render(content + "\n\n" + spinnerView))
+			Width(store.Width).
+			Height(store.Height).
+			Render(m.alert.View()))
+	}
+
+	if m.showRoomInput {
+		return zone.Scan(lipgloss.NewStyle().
+			AlignVertical(lipgloss.Center).
+			AlignHorizontal(lipgloss.Center).
+			Width(store.Width).
+			Height(store.Height).
+			Render(m.roomInput.View()))
 	}
 
 	return zone.Scan(lipgloss.NewStyle().
 		AlignVertical(lipgloss.Center).
 		AlignHorizontal(lipgloss.Center).
-		Width(m.width).
-		Height(m.height).
+		Width(store.Width).
+		Height(store.Height).
 		Render(content))
 }

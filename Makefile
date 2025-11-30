@@ -15,3 +15,7 @@ test:
 fmt:
 	(cd client && go fmt ./...);
 	(cd server && go fmt ./...);
+
+.PHONY: clean
+clean:
+	rm -rf client/client server/server

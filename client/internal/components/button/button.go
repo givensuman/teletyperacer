@@ -3,7 +3,7 @@ package button
 
 import (
 	"github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss/v2"
+	"github.com/charmbracelet/lipgloss"
 )
 
 type Model struct {
@@ -24,13 +24,16 @@ func NewButton(label string, action tea.Cmd) Model {
 		isFocused:  false,
 		isDisabled: false,
 		style: lipgloss.NewStyle().
-			Foreground(lipgloss.ANSIColor(lipgloss.White)).
+			Foreground(lipgloss.ANSIColor(15)).
 			Faint(true).
+			PaddingLeft(1).
 			Align(lipgloss.Center),
 
 		focusStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.ANSIColor(lipgloss.Blue)).
+			Foreground(lipgloss.ANSIColor(4)).
 			Bold(true).
+			Border(lipgloss.ASCIIBorder(), false, false, false, true).
+			BorderForeground(lipgloss.ANSIColor(4)).
 			Align(lipgloss.Center),
 	}
 }
@@ -48,6 +51,20 @@ func (m Model) GetAction() tea.Cmd {
 
 func (m Model) GetLabel() string {
 	return m.label
+}
+
+func (m Model) IsFocused() bool {
+	return m.isFocused
+}
+
+func (m Model) Focus() Model {
+	m.isFocused = true
+	return m
+}
+
+func (m Model) Unfocus() Model {
+	m.isFocused = false
+	return m
 }
 
 func (m Model) Init() tea.Cmd {

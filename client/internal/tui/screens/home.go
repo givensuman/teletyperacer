@@ -5,17 +5,17 @@ package screens
 import (
 	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss/v2"
+	"github.com/charmbracelet/lipgloss"
 	zone "github.com/lrstanley/bubblezone"
 
 	"github.com/givensuman/teletyperacer/client/internal/components/button"
+	"github.com/givensuman/teletyperacer/client/internal/components/roominput"
 	"github.com/givensuman/teletyperacer/client/internal/tui"
 )
 
 type HomeModel struct {
 	cursor       int
 	choices      [4]button.Model
-	status       tui.ConnectionStatus
 	notification string
 }
 
@@ -23,12 +23,11 @@ func NewHome() HomeModel {
 	return HomeModel{
 		cursor: 0,
 		choices: [4]button.Model{
-			button.NewFocusedButton("Join", nil),
+			button.NewFocusedButton("Join", func() tea.Msg { return roominput.ShowRoomInput() }),
 			button.NewButton("Host", func() tea.Msg { return tui.ScreenChangeMsg{Screen: tui.HostScreen} }),
 			button.NewButton("Practice", func() tea.Msg { return tui.ScreenChangeMsg{Screen: tui.PracticeScreen} }),
 			button.NewButton("Quit", tea.Quit),
 		},
-		status:       tui.Connecting,
 		notification: "",
 	}
 }
@@ -95,6 +94,8 @@ func (m HomeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "enter":
 			return m, m.choices[m.cursor].GetAction()
+		case "q":
+			return m, tea.Quit
 		}
 
 	case tea.MouseMsg:
@@ -107,19 +108,19 @@ func (m HomeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch msg.Button {
-			case tea.MouseButtonWheelUp:
-				// Simulate up
-				prevBtn, _ := m.choices[m.cursor].Update(button.Unfocus)
-				m.choices[m.cursor] = prevBtn.(button.Model)
+		case tea.MouseButtonWheelUp:
+			// Simulate up
+			prevBtn, _ := m.choices[m.cursor].Update(button.Unfocus)
+			m.choices[m.cursor] = prevBtn.(button.Model)
 
-				m.cursor--
-				if m.cursor < 0 {
-					m.cursor = len(m.choices) - 1
-				}
-				btn, cmd := m.choices[m.cursor].Update(button.Focus)
-				m.choices[m.cursor] = btn.(button.Model)
+			m.cursor--
+			if m.cursor < 0 {
+				m.cursor = len(m.choices) - 1
+			}
+			btn, cmd := m.choices[m.cursor].Update(button.Focus)
+			m.choices[m.cursor] = btn.(button.Model)
 
-				return m, cmd
+			return m, cmd
 
 		case tea.MouseButtonWheelDown:
 			// Simulate down
