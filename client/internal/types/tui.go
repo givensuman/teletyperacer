@@ -8,7 +8,7 @@ const (
 	HomeScreen Screen = iota
 	HostScreen
 	PracticeScreen
-	RoomInputScreen
+	JoinScreen
 )
 
 type ScreenChangeMsg struct {

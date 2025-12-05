@@ -13,7 +13,7 @@ import (
 	"github.com/gorilla/websocket"
 	zone "github.com/lrstanley/bubblezone"
 
-	"github.com/givensuman/teletyperacer/client/internal/tui/components/roominput"
+	"github.com/givensuman/teletyperacer/client/internal/tui/components/input"
 	"github.com/givensuman/teletyperacer/client/internal/tui/screens"
 	"github.com/givensuman/teletyperacer/client/internal/types"
 )
@@ -48,8 +48,8 @@ type Model struct {
 	home,
 	host,
 	practice tea.Model
-	// Room input component (used as screen)
-	roomInput tea.Model
+	// Join screen
+	join tea.Model
 	// WebSocket connection
 	conn    *websocket.Conn
 	spinner spinner.Model
@@ -78,8 +78,8 @@ func (b backgroundModel) View() string {
 		content = b.root.host.View()
 	case types.PracticeScreen:
 		content = b.root.practice.View()
-	case types.RoomInputScreen:
-		content = b.root.roomInput.View()
+	case types.JoinScreen:
+		content = b.root.join.View()
 	default:
 		content = b.root.home.View()
 	}
@@ -275,7 +275,7 @@ func New() Model {
 		home:             screens.NewHome(),
 		host:             screens.NewHost(),
 		practice:         screens.NewPractice(),
-		roomInput:        roominput.NewRoomInput(),
+		join:             screens.NewJoin(),
 		conn:             conn,
 		spinner:          s,
 		width:            80,
@@ -331,8 +331,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case types.ScreenChangeMsg:
 		m.screen = msg.Screen
-		if msg.Screen == types.RoomInputScreen {
-			m.roomInput = roominput.NewRoomInput()
+		if msg.Screen == types.JoinScreen {
+			m.join = screens.NewJoin()
 		}
 		return m, nil
 
@@ -357,13 +357,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sendWSMessage("joinRoom", JoinRoomData{Code: msg.Code})
 		return m, nil
 
-	case roominput.JoinRoomMsg:
+	case input.SubmitMsg:
 		// Send join room message to server
 		return m, func() tea.Msg {
-			return types.JoinRoomMsg{Code: strings.ToUpper(msg.Code)}
+			return types.JoinRoomMsg{Code: strings.ToUpper(msg.Value)}
 		}
 
-	case roominput.HideMsg:
+	case input.HideMsg:
 		return m, func() tea.Msg { return types.ScreenChangeMsg{Screen: types.HomeScreen} }
 
 	case types.RoomJoinedMsg:
@@ -385,8 +385,8 @@ func (m Model) updateCurrentScreen(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.host, cmd = m.host.Update(msg)
 	case types.PracticeScreen:
 		m.practice, cmd = m.practice.Update(msg)
-	case types.RoomInputScreen:
-		m.roomInput, cmd = m.roomInput.Update(msg)
+	case types.JoinScreen:
+		m.join, cmd = m.join.Update(msg)
 	default:
 		cmd = nil
 	}
@@ -404,8 +404,8 @@ func (m Model) View() string {
 		content = m.host.View()
 	case types.PracticeScreen:
 		content = m.practice.View()
-	case types.RoomInputScreen:
-		content = m.roomInput.View()
+	case types.JoinScreen:
+		content = m.join.View()
 	default:
 		content = m.home.View()
 	}
