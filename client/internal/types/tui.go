@@ -36,6 +36,10 @@ type JoinRoomMsg struct {
 	Code string
 }
 
+type GetRoomStateMsg struct {
+	Code string
+}
+
 type RoomCreatedMsg struct {
 	Code string
 }
@@ -45,7 +49,13 @@ type RoomJoinedMsg struct {
 }
 
 type PlayerJoinedMsg struct {
-	PlayerName string
+	PlayerIndex int
+}
+
+type RoomStateMsg struct {
+	Code        string
+	PlayerCount int
+	YourIndex   int
 }
 
 type CopyCodeMsg struct {
@@ -62,9 +72,4 @@ type ClipboardSuccessMsg struct {
 
 type RoomJoinFailedMsg struct {
 	Reason string
-}
-
-type RoomStateMsg struct {
-	Code    string
-	Players []string
 }

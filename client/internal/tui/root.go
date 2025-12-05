@@ -9,7 +9,7 @@ import (
 
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbletea"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/gorilla/websocket"
 	zone "github.com/lrstanley/bubblezone"
@@ -34,12 +34,13 @@ type JoinRoomData struct {
 }
 
 type RoomStateData struct {
-	Code    string   `json:"code"`
-	Players []string `json:"players"`
+	Code        string `json:"code"`
+	PlayerCount int    `json:"playerCount"`
+	YourIndex   int    `json:"yourIndex"`
 }
 
 type PlayerJoinedData struct {
-	PlayerName string `json:"playerName"`
+	PlayerIndex int `json:"playerIndex"`
 }
 
 type Model struct {
@@ -200,13 +201,13 @@ func (m Model) handleWSMessageFromEvent(eventType string, data interface{}) tea.
 	case "playerJoined":
 		var playerData PlayerJoinedData
 		if d, ok := data.(map[string]interface{}); ok {
-			if name, ok := d["playerName"].(string); ok {
-				playerData.PlayerName = name
+			if index, ok := d["playerIndex"].(float64); ok {
+				playerData.PlayerIndex = int(index)
 			}
 		} else if d, ok := data.(PlayerJoinedData); ok {
 			playerData = d
 		}
-		return types.PlayerJoinedMsg{PlayerName: playerData.PlayerName}
+		return types.PlayerJoinedMsg{PlayerIndex: playerData.PlayerIndex}
 
 	case "roomState":
 		var stateData RoomStateData
@@ -214,17 +215,16 @@ func (m Model) handleWSMessageFromEvent(eventType string, data interface{}) tea.
 			if code, ok := d["code"].(string); ok {
 				stateData.Code = code
 			}
-			if players, ok := d["players"].([]interface{}); ok {
-				for _, p := range players {
-					if name, ok := p.(string); ok {
-						stateData.Players = append(stateData.Players, name)
-					}
-				}
+			if playerCount, ok := d["playerCount"].(float64); ok {
+				stateData.PlayerCount = int(playerCount)
+			}
+			if yourIndex, ok := d["yourIndex"].(float64); ok {
+				stateData.YourIndex = int(yourIndex)
 			}
 		} else if d, ok := data.(RoomStateData); ok {
 			stateData = d
 		}
-		return types.RoomStateMsg{Code: stateData.Code, Players: stateData.Players}
+		return types.RoomStateMsg{Code: stateData.Code, PlayerCount: stateData.PlayerCount, YourIndex: stateData.YourIndex}
 
 	case "error":
 		// Handle specific error types
@@ -349,10 +349,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.screen = msg.Screen
 		if msg.Screen == types.JoinScreen {
 			m.join = screens.NewJoin()
+			return m, m.join.Init()
 		}
-		if msg.Screen == types.LobbyScreen && m.screen == types.HomeScreen {
-			// Only initialize host lobby when coming from home screen
-			m.lobby = screens.NewHostLobby()
+		if msg.Screen == types.LobbyScreen {
+			if m.screen == types.HomeScreen {
+				m.lobby = screens.NewHostLobby()
+			}
+			return m, m.lobby.Init()
 		}
 		return m, nil
 
@@ -375,6 +378,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case types.JoinRoomMsg:
 		m.sendWSMessage("joinRoom", JoinRoomData{Code: msg.Code})
+		return m, nil
+
+	case types.GetRoomStateMsg:
+		m.sendWSMessage("getRoomState", map[string]string{"code": msg.Code})
 		return m, nil
 
 	case input.SubmitMsg:
@@ -402,7 +409,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case types.RoomJoinedMsg:
 		// Successfully joined room, switch to player lobby
 		m.lobby = screens.NewPlayerLobby(msg.Code)
-		return m, func() tea.Msg { return types.ScreenChangeMsg{Screen: types.LobbyScreen} }
+		return m, tea.Batch(func() tea.Msg { return types.ScreenChangeMsg{Screen: types.LobbyScreen} }, func() tea.Msg { return types.GetRoomStateMsg{} })
 
 	case types.RoomJoinFailedMsg:
 		// Forward to current screen to handle the error

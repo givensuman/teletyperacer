@@ -18,12 +18,13 @@ type RoomJoinedResponse struct {
 }
 
 type RoomStateResponse struct {
-	Code    string   `json:"code"`
-	Players []string `json:"players"`
+	Code        string `json:"code"`
+	PlayerCount int    `json:"playerCount"`
+	YourIndex   int    `json:"yourIndex"`
 }
 
 type PlayerJoinedResponse struct {
-	PlayerName string `json:"playerName"`
+	PlayerIndex int `json:"playerIndex"`
 }
 
 type ErrorResponse struct {
