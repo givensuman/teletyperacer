@@ -60,6 +60,10 @@ type ClipboardSuccessMsg struct {
 	Message string
 }
 
+type RoomJoinFailedMsg struct {
+	Reason string
+}
+
 type RoomStateMsg struct {
 	Code    string
 	Players []string

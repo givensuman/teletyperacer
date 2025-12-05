@@ -11,6 +11,8 @@ import (
 	"github.com/givensuman/teletyperacer/client/internal/types"
 )
 
+const MaxPlayers = 10
+
 type LobbyMode int
 
 const (
@@ -122,13 +124,17 @@ func (m LobbyModel) View() string {
 		}
 	}
 
-	content.WriteString("Players:\n")
+	content.WriteString(fmt.Sprintf("Players (%d/%d):\n", len(m.players), MaxPlayers))
 	for i, player := range m.players {
 		content.WriteString(fmt.Sprintf("%d. %s\n", i+1, player))
 	}
 
 	if m.mode == HostMode {
-		content.WriteString("\nWaiting for players to join...\n\n")
+		if len(m.players) >= MaxPlayers {
+			content.WriteString("\nRoom is full!\n\n")
+		} else {
+			content.WriteString("\nWaiting for players to join...\n\n")
+		}
 	} else {
 		content.WriteString("\nWaiting for host to start...\n\n")
 	}

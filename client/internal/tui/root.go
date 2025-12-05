@@ -227,7 +227,12 @@ func (m Model) handleWSMessageFromEvent(eventType string, data interface{}) tea.
 		return types.RoomStateMsg{Code: stateData.Code, Players: stateData.Players}
 
 	case "error":
-		// For now, ignore errors. Could return an error message to display
+		// Handle specific error types
+		if d, ok := data.(map[string]interface{}); ok {
+			if reason, ok := d["reason"].(string); ok {
+				return types.RoomJoinFailedMsg{Reason: reason}
+			}
+		}
 		return nil
 	}
 
@@ -398,6 +403,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Successfully joined room, switch to player lobby
 		m.lobby = screens.NewPlayerLobby(msg.Code)
 		return m, func() tea.Msg { return types.ScreenChangeMsg{Screen: types.LobbyScreen} }
+
+	case types.RoomJoinFailedMsg:
+		// Forward to current screen to handle the error
+		return m.updateCurrentScreen(msg)
 
 	default:
 		// Forward all other messages to current screen

@@ -1,6 +1,7 @@
 package screens
 
 import (
+	"fmt"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -40,6 +41,16 @@ func (m JoinModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case types.RoomJoinedMsg:
 		// Successfully joined room, go to lobby as player
 		return m, func() tea.Msg { return types.ScreenChangeMsg{Screen: types.LobbyScreen} }
+	case types.RoomJoinFailedMsg:
+		// Join failed, reset input and show error
+		m.input = input.NewInput(input.Config{
+			Placeholder:    "Enter room code",
+			Label:          fmt.Sprintf("Join Failed: %s", msg.Reason),
+			SubmittedLabel: "Joining Room...",
+			SubmittedText:  "Attempting to join room",
+			CharLimit:      6,
+		})
+		return m, m.input.Init()
 	default:
 		var cmd tea.Cmd
 		updatedInput, cmd := m.input.Update(msg)
