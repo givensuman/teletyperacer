@@ -3,18 +3,42 @@
 package root
 
 import (
+	"encoding/json"
+	"net"
+	"strings"
+
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	zone "github.com/lrstanley/bubblezone"
 
 	sockets "github.com/givensuman/go-sockets/client"
-	"github.com/givensuman/teletyperacer/client/internal/components/alert"
-	"github.com/givensuman/teletyperacer/client/internal/components/roominput"
-	"github.com/givensuman/teletyperacer/client/internal/store"
 	"github.com/givensuman/teletyperacer/client/internal/tui"
 	"github.com/givensuman/teletyperacer/client/internal/tui/screens"
 )
+
+// WebSocket message types
+type WSMessage struct {
+	Type string      `json:"type"`
+	Data interface{} `json:"data,omitempty"`
+}
+
+type CreateRoomData struct {
+	Code string `json:"code"`
+}
+
+type JoinRoomData struct {
+	Code string `json:"code"`
+}
+
+type RoomStateData struct {
+	Code    string   `json:"code"`
+	Players []string `json:"players"`
+}
+
+type PlayerJoinedData struct {
+	PlayerName string `json:"playerName"`
+}
 
 type Model struct {
 	// Currently rendered screen
@@ -22,16 +46,17 @@ type Model struct {
 	// Child models
 	home,
 	host,
-	practice tea.Model
+	practice,
+	roomInput tea.Model
 	// WebSocket connection
 	socket  *sockets.Socket
 	spinner spinner.Model
-	// Alert overlay
-	alert     tea.Model
-	showAlert bool
-	// Room input overlay
-	roomInput     tea.Model
-	showRoomInput bool
+	// Window dimensions
+	width, height int
+	// Connection status
+	connectionStatus tui.ConnectionStatus
+	// WebSocket message channel
+	wsChan chan tea.Msg
 }
 
 type backgroundModel struct {
@@ -51,32 +76,180 @@ func (b backgroundModel) View() string {
 		content = b.root.host.View()
 	case tui.PracticeScreen:
 		content = b.root.practice.View()
+	case tui.RoomInputScreen:
+		content = b.root.roomInput.View()
 	default:
 		content = b.root.home.View()
 	}
 
-	store := store.GetStore()
-	if store.ConnectionStatus == tui.Connecting {
+	if b.root.connectionStatus == tui.Connecting {
 		spinnerView := lipgloss.NewStyle().
 			AlignVertical(lipgloss.Center).
 			AlignHorizontal(lipgloss.Center).
-			Width(store.Width).
-			Height(store.Height).
+			Width(b.root.width).
+			Height(b.root.height).
 			Render("Connecting to server...\n" + b.root.spinner.View())
 		return zone.Scan(lipgloss.NewStyle().
 			AlignVertical(lipgloss.Center).
 			AlignHorizontal(lipgloss.Center).
-			Width(store.Width).
-			Height(store.Height).
+			Width(b.root.width).
+			Height(b.root.height).
 			Render(content + "\n\n" + spinnerView))
 	}
 
 	return zone.Scan(lipgloss.NewStyle().
 		AlignVertical(lipgloss.Center).
 		AlignHorizontal(lipgloss.Center).
-		Width(store.Width).
-		Height(store.Height).
+		Width(b.root.width).
+		Height(b.root.height).
 		Render(content))
+}
+
+// categorizeConnectionError determines the type of connection error
+func categorizeConnectionError(err error) tui.ConnectionStatus {
+	if err == nil {
+		return tui.Connected
+	}
+
+	errStr := err.Error()
+
+	// Check for client-side configuration errors
+	if strings.Contains(errStr, "invalid URL") ||
+		strings.Contains(errStr, "unsupported protocol") ||
+		strings.Contains(errStr, "malformed") {
+		return tui.ClientError
+	}
+
+	// Check for network-related errors that indicate server unreachable
+	if netErr, ok := err.(net.Error); ok {
+		if netErr.Timeout() {
+			return tui.ServerUnreachable
+		}
+		// Check for specific network error types
+		if opErr, ok := netErr.(*net.OpError); ok {
+			if opErr.Op == "dial" {
+				return tui.ServerUnreachable
+			}
+		}
+	}
+
+	// Check for common server unreachable indicators
+	if strings.Contains(errStr, "connection refused") ||
+		strings.Contains(errStr, "no such host") ||
+		strings.Contains(errStr, "network is unreachable") ||
+		strings.Contains(errStr, "connection timed out") {
+		return tui.ServerUnreachable
+	}
+
+	// Default to client error for any other issues
+	return tui.ClientError
+}
+
+// sendWSMessage sends a message to the WebSocket server
+func (m Model) sendWSMessage(msgType string, data interface{}) {
+	if m.socket == nil {
+		return
+	}
+
+	// Send the data directly - let the library handle serialization
+	m.socket.Emit(msgType, data)
+}
+
+// handleWSMessageFromEvent processes incoming WebSocket messages from specific events
+func (m Model) handleWSMessageFromEvent(eventType string, data interface{}) tea.Msg {
+	switch eventType {
+	case "roomCreated":
+		var roomData CreateRoomData
+		if d, ok := data.(map[string]interface{}); ok {
+			if code, ok := d["code"].(string); ok {
+				roomData.Code = code
+			}
+		} else if d, ok := data.(CreateRoomData); ok {
+			roomData = d
+		}
+		return tui.RoomCreatedMsg{Code: roomData.Code}
+
+	case "roomJoined":
+		var roomData JoinRoomData
+		if d, ok := data.(map[string]interface{}); ok {
+			if code, ok := d["code"].(string); ok {
+				roomData.Code = code
+			}
+		} else if d, ok := data.(JoinRoomData); ok {
+			roomData = d
+		}
+		return tui.RoomJoinedMsg{Code: roomData.Code}
+
+	case "playerJoined":
+		var playerData PlayerJoinedData
+		if d, ok := data.(map[string]interface{}); ok {
+			if name, ok := d["playerName"].(string); ok {
+				playerData.PlayerName = name
+			}
+		} else if d, ok := data.(PlayerJoinedData); ok {
+			playerData = d
+		}
+		return tui.PlayerJoinedMsg{PlayerName: playerData.PlayerName}
+
+	case "roomState":
+		var stateData RoomStateData
+		if d, ok := data.(map[string]interface{}); ok {
+			if code, ok := d["code"].(string); ok {
+				stateData.Code = code
+			}
+			if players, ok := d["players"].([]interface{}); ok {
+				for _, p := range players {
+					if name, ok := p.(string); ok {
+						stateData.Players = append(stateData.Players, name)
+					}
+				}
+			}
+		} else if d, ok := data.(RoomStateData); ok {
+			stateData = d
+		}
+		return tui.RoomStateMsg{Code: stateData.Code, Players: stateData.Players}
+
+	case "error":
+		// For now, ignore errors. Could return an error message to display
+		return nil
+	}
+
+	return nil
+}
+
+// handleWSMessage processes incoming WebSocket messages (legacy, kept for compatibility)
+func (m Model) handleWSMessage(data interface{}) tea.Msg {
+	var wsMsg WSMessage
+	var jsonData []byte
+
+	// Handle different data types from WebSocket
+	switch d := data.(type) {
+	case string:
+		jsonData = []byte(d)
+	case []byte:
+		jsonData = d
+	default:
+		// Try to marshal the interface{} to JSON
+		if marshaled, err := json.Marshal(d); err == nil {
+			jsonData = marshaled
+		} else {
+			return nil
+		}
+	}
+
+	if err := json.Unmarshal(jsonData, &wsMsg); err != nil {
+		return nil
+	}
+
+	return m.handleWSMessageFromEvent(wsMsg.Type, wsMsg.Data)
+}
+
+// waitForWSMessage waits for WebSocket messages
+func (m Model) waitForWSMessage() tea.Cmd {
+	return func() tea.Msg {
+		msg := <-m.wsChan
+		return msg
+	}
 }
 
 func New() Model {
@@ -86,35 +259,99 @@ func New() Model {
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 
-	store := store.GetStore()
+	connectionStatus := tui.Connected
 	if err != nil {
-		store.ConnectionStatus = tui.Failed
-	} else {
-		store.ConnectionStatus = tui.Connected
+		connectionStatus = categorizeConnectionError(err)
 	}
 
 	return Model{
-		screen:        tui.HomeScreen,
-		home:          screens.NewHome(),
-		host:          screens.NewHost(),
-		practice:      screens.NewPractice(),
-		socket:        socket,
-		spinner:       s,
-		showAlert:     false,
-		showRoomInput: false,
+		screen:           tui.HomeScreen,
+		home:             screens.NewHome(),
+		host:             screens.NewHost(),
+		practice:         screens.NewPractice(),
+		roomInput:        screens.NewRoomInput(),
+		socket:           socket,
+		spinner:          s,
+		width:            80,
+		height:           24,
+		connectionStatus: connectionStatus,
+		wsChan:           make(chan tea.Msg, 10),
 	}
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.spinner.Tick)
+	// Set up WebSocket message listeners
+	if m.socket != nil {
+		m.socket.On("roomCreated", func(data interface{}) {
+			if msg := m.handleWSMessageFromEvent("roomCreated", data); msg != nil {
+				select {
+				case m.wsChan <- msg:
+				default:
+					// Channel full, drop message
+				}
+			}
+		})
+
+		m.socket.On("roomJoined", func(data interface{}) {
+			if msg := m.handleWSMessageFromEvent("roomJoined", data); msg != nil {
+				select {
+				case m.wsChan <- msg:
+				default:
+					// Channel full, drop message
+				}
+			}
+		})
+
+		m.socket.On("roomState", func(data interface{}) {
+			if msg := m.handleWSMessageFromEvent("roomState", data); msg != nil {
+				select {
+				case m.wsChan <- msg:
+				default:
+					// Channel full, drop message
+				}
+			}
+		})
+
+		m.socket.On("playerJoined", func(data interface{}) {
+			if msg := m.handleWSMessageFromEvent("playerJoined", data); msg != nil {
+				select {
+				case m.wsChan <- msg:
+				default:
+					// Channel full, drop message
+				}
+			}
+		})
+
+		m.socket.On("error", func(data interface{}) {
+			if msg := m.handleWSMessageFromEvent("error", data); msg != nil {
+				select {
+				case m.wsChan <- msg:
+				default:
+					// Channel full, drop message
+				}
+			}
+		})
+	}
+
+	return tea.Batch(
+		m.spinner.Tick,
+		func() tea.Msg {
+			return tui.ConnectionStatusMsg{Status: m.connectionStatus}
+		},
+		m.waitForWSMessage(),
+	)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		store := store.GetStore()
-		store.Width = msg.Width
-		store.Height = msg.Height
+		m.width = msg.Width
+		m.height = msg.Height
+		// Forward window size to current screen
+		return m.updateCurrentScreen(msg)
+
+	case tui.ScreenChangeMsg:
+		m.screen = msg.Screen
 		return m, nil
 
 	case spinner.TickMsg:
@@ -123,107 +360,44 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case tui.ConnectionStatusMsg:
-		store := store.GetStore()
-		store.ConnectionStatus = msg.Status
+		m.connectionStatus = msg.Status
+		// Forward connection status to current screen
+		return m.updateCurrentScreen(msg)
+
+	case tui.CreateRoomMsg:
+		// Get the join code from the host screen
+		if hostModel, ok := m.host.(screens.HostModel); ok {
+			m.sendWSMessage("createRoom", CreateRoomData{Code: hostModel.GetJoinCode()})
+		}
 		return m, nil
 
-	case alert.ShowMsg:
-		m.alert = alert.NewAlert(msg.Title, msg.Message, msg.Buttons...)
-		m.showAlert = true
+	case tui.JoinRoomMsg:
+		m.sendWSMessage("joinRoom", JoinRoomData{Code: msg.Code})
 		return m, nil
 
-	case alert.HideMsg:
-		m.showAlert = false
-		return m, nil
-
-	case roominput.ShowMsg:
-		m.roomInput = roominput.NewRoomInput()
-		store := store.GetStore()
-		m.roomInput, _ = m.roomInput.Update(tea.WindowSizeMsg{Width: store.Width, Height: store.Height})
-		m.showRoomInput = true
-		return m, m.roomInput.Init()
-
-	case roominput.HideMsg:
-		m.showRoomInput = false
-		return m, nil
-
-	case roominput.JoinRoomMsg:
-		// TODO: Handle joining room with code
-		m.showRoomInput = false
-		return m, nil
+	default:
+		// Forward all other messages to current screen
+		return m.updateCurrentScreen(msg)
 	}
+}
 
-	if m.showAlert {
-		var cmd tea.Cmd
-		m.alert, cmd = m.alert.Update(msg)
-		return m, cmd
-	}
-
-	if m.showRoomInput {
-		var cmd tea.Cmd
-		m.roomInput, cmd = m.roomInput.Update(msg)
-		return m, cmd
-	}
-
+func (m Model) updateCurrentScreen(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
 	switch m.screen {
 	case tui.HomeScreen:
-		return m.updateHome(msg)
+		m.home, cmd = m.home.Update(msg)
 	case tui.HostScreen:
-		return m.updateHost(msg)
+		m.host, cmd = m.host.Update(msg)
 	case tui.PracticeScreen:
-		return m.updatePractice(msg)
+		m.practice, cmd = m.practice.Update(msg)
+	case tui.RoomInputScreen:
+		m.roomInput, cmd = m.roomInput.Update(msg)
 	default:
-		return m, nil
-	}
-}
-
-func (m Model) updateHome(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.Type {
-		case tea.KeyCtrlC:
-			return m, tea.Quit
-		}
-	case tui.ScreenChangeMsg:
-		m.screen = msg.Screen
-		return m, nil
+		cmd = nil
 	}
 
-	var cmd tea.Cmd
-	m.home, cmd = m.home.Update(msg)
-	return m, cmd
-}
-
-func (m Model) updateHost(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "q", "ctrl+c":
-			return m, tea.Quit
-		case "esc":
-			m.screen = tui.HomeScreen
-			return m, nil
-		}
-	}
-	var cmd tea.Cmd
-	m.host, cmd = m.host.Update(msg)
-	return m, cmd
-}
-
-func (m Model) updatePractice(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c":
-			return m, tea.Quit
-		case "esc":
-			m.screen = tui.HomeScreen
-			return m, nil
-		}
-	}
-	var cmd tea.Cmd
-	m.practice, cmd = m.practice.Update(msg)
-	return m, cmd
+	// Always continue waiting for WebSocket messages
+	return m, tea.Batch(cmd, m.waitForWSMessage())
 }
 
 func (m Model) View() string {
@@ -235,48 +409,31 @@ func (m Model) View() string {
 		content = m.host.View()
 	case tui.PracticeScreen:
 		content = m.practice.View()
+	case tui.RoomInputScreen:
+		content = m.roomInput.View()
 	default:
 		content = m.home.View()
 	}
 
-	store := store.GetStore()
-	if store.ConnectionStatus == tui.Connecting {
+	if m.connectionStatus == tui.Connecting {
 		spinnerView := lipgloss.NewStyle().
 			AlignVertical(lipgloss.Center).
 			AlignHorizontal(lipgloss.Center).
-			Width(store.Width).
-			Height(store.Height).
+			Width(m.width).
+			Height(m.height).
 			Render("Connecting to server...\n" + m.spinner.View())
 		content = lipgloss.NewStyle().
 			AlignVertical(lipgloss.Center).
 			AlignHorizontal(lipgloss.Center).
-			Width(store.Width).
-			Height(store.Height).
+			Width(m.width).
+			Height(m.height).
 			Render(content + "\n\n" + spinnerView)
-	}
-
-	if m.showAlert {
-		return zone.Scan(lipgloss.NewStyle().
-			AlignVertical(lipgloss.Center).
-			AlignHorizontal(lipgloss.Center).
-			Width(store.Width).
-			Height(store.Height).
-			Render(m.alert.View()))
-	}
-
-	if m.showRoomInput {
-		return zone.Scan(lipgloss.NewStyle().
-			AlignVertical(lipgloss.Center).
-			AlignHorizontal(lipgloss.Center).
-			Width(store.Width).
-			Height(store.Height).
-			Render(m.roomInput.View()))
 	}
 
 	return zone.Scan(lipgloss.NewStyle().
 		AlignVertical(lipgloss.Center).
 		AlignHorizontal(lipgloss.Center).
-		Width(store.Width).
-		Height(store.Height).
+		Width(m.width).
+		Height(m.height).
 		Render(content))
 }

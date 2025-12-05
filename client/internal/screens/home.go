@@ -19,6 +19,7 @@ type HomeModel struct {
 	notification     string
 	spinner          spinner.Model
 	connectionStatus tui.ConnectionStatus
+	connectionError  error
 }
 
 func NewHome() HomeModel {
@@ -26,8 +27,8 @@ func NewHome() HomeModel {
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 
-	joinBtn := button.NewFocusedButton("Join", func() tea.Msg { return tui.ScreenChangeMsg{Screen: tui.RoomInputScreen} })
-	hostBtn := button.NewButton("Host", func() tea.Msg { return tui.ScreenChangeMsg{Screen: tui.HostScreen} })
+	joinBtn := button.NewFocusedButton("Join", func() tea.Msg { return tui.ScreenChangeMsg{Screen: tui.JoinScreen} })
+	hostBtn := button.NewButton("Host", func() tea.Msg { return tui.HostRoomMsg{} })
 
 	// Initially disable Join and Host since connection starts as Connecting
 	disabledJoinBtn, _ := joinBtn.Update(button.Disable)
@@ -46,6 +47,7 @@ func NewHome() HomeModel {
 		notification:     "",
 		spinner:          s,
 		connectionStatus: tui.Connecting,
+		connectionError:  nil,
 	}
 }
 
@@ -92,6 +94,7 @@ func (m HomeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tui.ConnectionStatusMsg:
 		m.connectionStatus = msg.Status
+		m.connectionError = msg.Error
 		switch msg.Status {
 		case tui.Connected:
 			m.notification = "Connected to server successfully."
@@ -110,7 +113,11 @@ func (m HomeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.choices[0] = disabledJoin.(button.Model)
 			m.choices[1] = disabledHost.(button.Model)
 		case tui.ClientError:
-			m.notification = "Client configuration error. Join and Host are disabled."
+			if msg.Error != nil {
+				m.notification = fmt.Sprintf("Client error: %v. Join and Host are disabled.", msg.Error)
+			} else {
+				m.notification = "Client configuration error. Join and Host are disabled."
+			}
 			// Disable Join and Host buttons
 			disabledJoin, _ := m.choices[0].Update(button.Disable)
 			disabledHost, _ := m.choices[1].Update(button.Disable)
@@ -257,9 +264,15 @@ func (m HomeModel) View() string {
 			Foreground(lipgloss.Color("1")).
 			Render("✗ Server unreachable")
 	case tui.ClientError:
-		status = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("1")).
-			Render("✗ Client configuration error")
+		if m.connectionError != nil {
+			status = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("1")).
+				Render(fmt.Sprintf("✗ Client error: %v", m.connectionError))
+		} else {
+			status = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("1")).
+				Render("✗ Client configuration error")
+		}
 	case tui.Failed:
 		status = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("1")).

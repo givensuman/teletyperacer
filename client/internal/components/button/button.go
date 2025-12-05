@@ -7,12 +7,13 @@ import (
 )
 
 type Model struct {
-	label      string
-	action     tea.Cmd
-	isFocused  bool
-	isDisabled bool
-	style      lipgloss.Style
-	focusStyle lipgloss.Style
+	label         string
+	action        tea.Cmd
+	isFocused     bool
+	isDisabled    bool
+	style         lipgloss.Style
+	focusStyle    lipgloss.Style
+	disabledStyle lipgloss.Style
 }
 
 var _ tea.Model = Model{}
@@ -35,6 +36,12 @@ func NewButton(label string, action tea.Cmd) Model {
 			Border(lipgloss.ASCIIBorder(), false, false, false, true).
 			BorderForeground(lipgloss.ANSIColor(4)).
 			Align(lipgloss.Center),
+
+		disabledStyle: lipgloss.NewStyle().
+			Foreground(lipgloss.ANSIColor(8)).
+			Faint(true).
+			PaddingLeft(1).
+			Align(lipgloss.Center),
 	}
 }
 
@@ -55,6 +62,10 @@ func (m Model) GetLabel() string {
 
 func (m Model) IsFocused() bool {
 	return m.isFocused
+}
+
+func (m Model) IsDisabled() bool {
+	return m.isDisabled
 }
 
 func (m Model) Focus() Model {
@@ -97,12 +108,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case WidthMsg:
 		m.style = m.style.Width(int(msg))
 		m.focusStyle = m.focusStyle.Width(int(msg))
+		m.disabledStyle = m.disabledStyle.Width(int(msg))
 	}
 
 	return m, nil
 }
 
 func (m Model) View() string {
+	if m.isDisabled {
+		return m.disabledStyle.Render(m.label)
+	}
+
 	if m.isFocused {
 		return m.focusStyle.Render(m.label)
 	}

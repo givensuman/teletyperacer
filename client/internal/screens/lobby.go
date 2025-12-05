@@ -6,14 +6,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/givensuman/teletyperacer/client/internal/tui"
 )
 
-type HostModel struct {
+type LobbyModel struct {
 	joinCode string
 	players  []string
+	isHost   bool
 }
 
 // generateJoinCode creates a random 6-character join code
@@ -27,18 +29,19 @@ func generateJoinCode() string {
 	return string(code)
 }
 
-func NewHost() HostModel {
-	return HostModel{
-		joinCode: generateJoinCode(),
-		players:  []string{}, // Host is automatically a player
+func NewLobby() LobbyModel {
+	return LobbyModel{
+		joinCode: "",
+		players:  []string{},
+		isHost:   false,
 	}
 }
 
-func (m HostModel) Init() tea.Cmd {
-	return func() tea.Msg { return tui.CreateRoomMsg{} }
+func (m LobbyModel) Init() tea.Cmd {
+	return nil
 }
 
-func (m HostModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m LobbyModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -46,25 +49,41 @@ func (m HostModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case "esc":
 			return m, func() tea.Msg { return tui.ScreenChangeMsg{Screen: tui.HomeScreen} }
+		case "c":
+			if m.joinCode != "" {
+				clipboard.WriteAll(m.joinCode)
+			}
 		}
-	case tui.RoomCreatedMsg:
-		// Server confirmed room creation
-		m.players = []string{"You (Host)"}
-	case tui.PlayerJoinedMsg:
+	case tui.StartHostingMsg:
+		// Start hosting a room
+		m.isHost = true
+		m.joinCode = generateJoinCode()
+		return m, func() tea.Msg { return tui.CreateRoomMsg{} }
+	case tui.AppRoomHostedMsg:
+		// Room hosted successfully
+	case tui.AppRoomStateUpdatedMsg:
+		// Update room code and players list
+		m.joinCode = msg.Code
+		m.players = msg.Players
+	case tui.AppPlayerJoinedMsg:
 		m.players = append(m.players, msg.PlayerName)
 	}
 
 	return m, nil
 }
 
-func (m HostModel) GetJoinCode() string {
+func (m LobbyModel) GetJoinCode() string {
 	return m.joinCode
 }
 
-func (m HostModel) View() string {
+func (m LobbyModel) View() string {
 	var content strings.Builder
 
-	content.WriteString("🎯 Host Lobby\n\n")
+	if m.isHost {
+		content.WriteString("🎯 Host Lobby\n\n")
+	} else {
+		content.WriteString("🎯 Game Lobby\n\n")
+	}
 
 	if m.joinCode != "" {
 		content.WriteString(fmt.Sprintf("Join Code: %s\n\n", m.joinCode))
@@ -79,6 +98,9 @@ func (m HostModel) View() string {
 	}
 
 	content.WriteString("\nWaiting for players to join...\n\n")
+	if m.joinCode != "" {
+		content.WriteString("Press C to copy code • ")
+	}
 	content.WriteString("Press ESC to go back to Home • Press Q to quit")
 
 	return lipgloss.NewStyle().

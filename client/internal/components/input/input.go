@@ -1,5 +1,5 @@
-// Package roominput defines the room code input component
-package roominput
+// Package input defines a generic text input component
+package input
 
 import (
 	"strings"
@@ -9,20 +9,29 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+type Config struct {
+	Placeholder    string
+	Label          string
+	SubmittedLabel string
+	SubmittedText  string
+	CharLimit      int
+}
+
 type Model struct {
 	textInput textinput.Model
 	width     int
 	height    int
 	submitted bool
+	config    Config
 }
 
 var _ tea.Model = Model{}
 
-func NewRoomInput() Model {
+func NewInput(config Config) Model {
 	ti := textinput.New()
-	ti.Placeholder = "Enter room code"
+	ti.Placeholder = config.Placeholder
 	ti.Focus()
-	ti.CharLimit = 6
+	ti.CharLimit = config.CharLimit
 	ti.Width = 30
 
 	return Model{
@@ -30,6 +39,7 @@ func NewRoomInput() Model {
 		width:     50,
 		height:    10,
 		submitted: false,
+		config:    config,
 	}
 }
 
@@ -47,7 +57,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyEnter:
 			m.submitted = true
 			return m, func() tea.Msg {
-				return JoinRoomMsg{Code: strings.ToUpper(m.textInput.Value())}
+				return SubmitMsg{Value: strings.ToUpper(m.textInput.Value())}
 			}
 		case tea.KeyEsc:
 			return m, func() tea.Msg { return HideMsg{} }
@@ -79,7 +89,7 @@ func (m Model) View() string {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.ANSIColor(4)).
 		Padding(1, 2).
-		Width(m.width).
+		Width(50).
 		Align(lipgloss.Center)
 
 	labelStyle := lipgloss.NewStyle().
@@ -93,12 +103,12 @@ func (m Model) View() string {
 	var content string
 
 	if m.submitted {
-		content = labelStyle.Render("Joining Room...") + "\n\n" +
-			"Attempting to join room " + strings.ToUpper(m.textInput.Value()) + "\n\n" +
+		content = labelStyle.Render(m.config.SubmittedLabel) + "\n\n" +
+			m.config.SubmittedText + "\n\n" +
 			helpStyle.Render("esc cancel")
 	} else {
 		inputView := m.textInput.View()
-		content = labelStyle.Render("Enter Room Code") + "\n\n" +
+		content = labelStyle.Render(m.config.Label) + "\n\n" +
 			inputView + "\n\n" +
 			helpStyle.Render("enter submit • esc cancel")
 	}
