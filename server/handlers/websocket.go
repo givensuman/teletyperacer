@@ -28,18 +28,21 @@ type Room struct {
 	clients   map[string]*websocket.Conn
 	indices   map[string]int // clientID -> playerIndex
 	nextIndex int
+	version   int // state version for synchronization
 }
 
 // RoomManager manages WebSocket connections and rooms
 type RoomManager struct {
-	rooms map[string]*Room // roomCode -> room
-	mu    sync.RWMutex
+	rooms        map[string]*Room  // roomCode -> room
+	clientToRoom map[string]string // clientID -> roomCode
+	mu           sync.RWMutex
 }
 
 // NewRoomManager creates a new room manager
 func NewRoomManager() *RoomManager {
 	return &RoomManager{
-		rooms: make(map[string]*Room),
+		rooms:        make(map[string]*Room),
+		clientToRoom: make(map[string]string),
 	}
 }
 
@@ -53,6 +56,7 @@ func (rm *RoomManager) AddClient(roomCode, clientID string, conn *websocket.Conn
 			clients:   make(map[string]*websocket.Conn),
 			indices:   make(map[string]int),
 			nextIndex: 0,
+			version:   0,
 		}
 	}
 	room := rm.rooms[roomCode]
@@ -61,6 +65,7 @@ func (rm *RoomManager) AddClient(roomCode, clientID string, conn *websocket.Conn
 		room.nextIndex++
 	}
 	room.clients[clientID] = conn
+	rm.clientToRoom[clientID] = roomCode
 }
 
 // RemoveClient removes a client from a room
@@ -71,8 +76,12 @@ func (rm *RoomManager) RemoveClient(roomCode, clientID string) {
 	if room, exists := rm.rooms[roomCode]; exists {
 		delete(room.clients, clientID)
 		delete(room.indices, clientID)
+		delete(rm.clientToRoom, clientID)
 		if len(room.clients) == 0 {
 			delete(rm.rooms, roomCode)
+		} else {
+			// Broadcast updated state to remaining clients
+			rm.BroadcastRoomState(roomCode)
 		}
 	}
 }
@@ -124,6 +133,33 @@ func (rm *RoomManager) GetPlayerIndex(roomCode, clientID string) int {
 		}
 	}
 	return -1
+}
+
+// BroadcastRoomState sends updated roomState to all clients in the room
+func (rm *RoomManager) BroadcastRoomState(roomCode string) {
+	rm.mu.RLock()
+	defer rm.mu.RUnlock()
+
+	room, exists := rm.rooms[roomCode]
+	if !exists {
+		return
+	}
+
+	playerCount := len(room.clients)
+	room.version++
+
+	for clientID, conn := range room.clients {
+		yourIndex := room.indices[clientID]
+		roomState := types.RoomStateResponse{
+			Code:        roomCode,
+			PlayerCount: playerCount,
+			YourIndex:   yourIndex,
+			Version:     room.version,
+		}
+		stateMsg := Message{Type: "roomState", Data: roomState}
+		sendMessage(conn, stateMsg)
+		log.Printf("📤 Broadcasted roomState to client %s for room %s: %d players, yourIndex %d, version %d", clientID, roomCode, roomState.PlayerCount, roomState.YourIndex, roomState.Version)
+	}
 }
 
 var roomManager = NewRoomManager()
@@ -198,17 +234,8 @@ func handleCreateRoom(conn *websocket.Conn, clientID, code string) {
 	sendMessage(conn, response)
 	log.Printf("📤 Sent roomCreated confirmation to client %s for room %s", clientID, code)
 
-	// Send initial room state (just the host for now)
-	playerCount := roomManager.GetRoomClients(code)
-	yourIndex := roomManager.GetPlayerIndex(code, clientID)
-	roomState := types.RoomStateResponse{
-		Code:        code,
-		PlayerCount: playerCount,
-		YourIndex:   yourIndex,
-	}
-	stateMsg := Message{Type: "roomState", Data: roomState}
-	sendMessage(conn, stateMsg)
-	log.Printf("📤 Sent initial roomState to client %s for room %s: %d players, yourIndex %d", clientID, code, roomState.PlayerCount, roomState.YourIndex)
+	// Broadcast initial room state to all (just the host)
+	roomManager.BroadcastRoomState(code)
 }
 
 func handleJoinRoom(conn *websocket.Conn, clientID, code string) {
@@ -222,40 +249,8 @@ func handleJoinRoom(conn *websocket.Conn, clientID, code string) {
 	sendMessage(conn, response)
 	log.Printf("📤 Sent roomJoined confirmation to client %s for room %s", clientID, code)
 
-	// Send room state to the new player
-	playerCount := roomManager.GetRoomClients(code)
-	yourIndex := roomManager.GetPlayerIndex(code, clientID)
-	roomState := types.RoomStateResponse{
-		Code:        code,
-		PlayerCount: playerCount,
-		YourIndex:   yourIndex,
-	}
-	stateMsg := Message{Type: "roomState", Data: roomState}
-	sendMessage(conn, stateMsg)
-	log.Printf("📤 Sent roomState to client %s for room %s: %d players, yourIndex %d", clientID, code, roomState.PlayerCount, roomState.YourIndex)
-
-	// Send updated room state to all existing players
-	roomManager.mu.RLock()
-	room := roomManager.rooms[code]
-	for existingClientID, existingConn := range room.clients {
-		if existingClientID != clientID {
-			existingIndex := room.indices[existingClientID]
-			existingRoomState := types.RoomStateResponse{
-				Code:        code,
-				PlayerCount: playerCount,
-				YourIndex:   existingIndex,
-			}
-			existingStateMsg := Message{Type: "roomState", Data: existingRoomState}
-			sendMessage(existingConn, existingStateMsg)
-			log.Printf("📤 Sent updated roomState to existing client %s for room %s: %d players, yourIndex %d", existingClientID, code, existingRoomState.PlayerCount, existingRoomState.YourIndex)
-		}
-	}
-	roomManager.mu.RUnlock()
-
-	// Broadcast player joined event
-	broadcastMsg := Message{Type: "playerJoined", Data: types.PlayerJoinedResponse{PlayerIndex: yourIndex}}
-	roomManager.BroadcastToRoom(code, clientID, broadcastMsg)
-	log.Printf("📢 Broadcasted playerJoined event to room %s (excluding sender %s)", code, clientID)
+	// Broadcast updated room state to all clients
+	roomManager.BroadcastRoomState(code)
 }
 
 func handleGetRoomState(conn *websocket.Conn, clientID, code string) {

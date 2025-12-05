@@ -56,6 +56,7 @@ type RoomStateMsg struct {
 	Code        string
 	PlayerCount int
 	YourIndex   int
+	Version     int
 }
 
 type CopyCodeMsg struct {

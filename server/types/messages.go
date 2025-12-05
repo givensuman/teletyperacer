@@ -21,6 +21,7 @@ type RoomStateResponse struct {
 	Code        string `json:"code"`
 	PlayerCount int    `json:"playerCount"`
 	YourIndex   int    `json:"yourIndex"`
+	Version     int    `json:"version"`
 }
 
 type PlayerJoinedResponse struct {

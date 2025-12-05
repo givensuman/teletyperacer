@@ -37,6 +37,7 @@ type RoomStateData struct {
 	Code        string `json:"code"`
 	PlayerCount int    `json:"playerCount"`
 	YourIndex   int    `json:"yourIndex"`
+	Version     int    `json:"version"`
 }
 
 type PlayerJoinedData struct {
@@ -221,10 +222,13 @@ func (m Model) handleWSMessageFromEvent(eventType string, data interface{}) tea.
 			if yourIndex, ok := d["yourIndex"].(float64); ok {
 				stateData.YourIndex = int(yourIndex)
 			}
+			if version, ok := d["version"].(float64); ok {
+				stateData.Version = int(version)
+			}
 		} else if d, ok := data.(RoomStateData); ok {
 			stateData = d
 		}
-		return types.RoomStateMsg{Code: stateData.Code, PlayerCount: stateData.PlayerCount, YourIndex: stateData.YourIndex}
+		return types.RoomStateMsg{Code: stateData.Code, PlayerCount: stateData.PlayerCount, YourIndex: stateData.YourIndex, Version: stateData.Version}
 
 	case "error":
 		// Handle specific error types

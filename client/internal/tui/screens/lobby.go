@@ -25,6 +25,7 @@ type LobbyModel struct {
 	joinCode    string
 	playerCount int
 	playerIndex int // 0-based index of current player
+	lastVersion int // last received state version
 }
 
 func generateJoinCode() string {
@@ -43,6 +44,7 @@ func NewHostLobby() LobbyModel {
 		joinCode:    generateJoinCode(),
 		playerCount: 1, // Host is automatically a player
 		playerIndex: 0, // Host is always P1
+		lastVersion: -1,
 	}
 }
 
@@ -52,6 +54,7 @@ func NewPlayerLobby(code string) LobbyModel {
 		joinCode:    code,
 		playerCount: 0,  // Will be updated by server
 		playerIndex: -1, // Will be updated by server
+		lastVersion: -1,
 	}
 }
 
@@ -95,13 +98,20 @@ func (m LobbyModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.playerCount = 1
 			m.playerIndex = 0
 		}
-	case types.PlayerJoinedMsg:
-		m.playerCount++
+
 	case types.RoomStateMsg:
-		// Update room state
-		m.joinCode = msg.Code
-		m.playerCount = msg.PlayerCount
-		m.playerIndex = msg.YourIndex
+		// Update room state only if version is newer
+		if msg.Version > m.lastVersion {
+			m.lastVersion = msg.Version
+			m.joinCode = msg.Code
+			m.playerCount = msg.PlayerCount
+			m.playerIndex = msg.YourIndex
+			// Validate yourIndex
+			if m.playerIndex < 0 || m.playerIndex >= m.playerCount {
+				// Invalid, but for now, set to 0 or something
+				m.playerIndex = 0
+			}
+		}
 	}
 
 	return m, nil
