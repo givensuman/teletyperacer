@@ -3,19 +3,19 @@ module github.com/givensuman/teletyperacer/client
 go 1.25.4
 
 require (
-	github.com/atotto/clipboard v0.1.4
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
+	github.com/gorilla/websocket v1.5.3
 	github.com/guptarohit/asciigraph v0.7.3
 	github.com/lrstanley/bubblezone v1.0.0
 	github.com/muesli/reflow v0.3.0
 )
 
 require (
+	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/clipperhouse/displaywidth v0.6.0 // indirect
 	github.com/clipperhouse/stringish v0.1.1 // indirect
 	github.com/clipperhouse/uax29/v2 v2.3.0 // indirect
-	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
 )
 

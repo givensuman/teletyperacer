@@ -1,6 +1,6 @@
-// Package tui controls rendering
-// of the TUI
-package tui
+// Package types contains shared types
+// for the TUI
+package types
 
 type Screen int
 

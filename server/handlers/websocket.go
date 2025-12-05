@@ -1,72 +1,210 @@
 package handlers
 
 import (
+	"encoding/json"
 	"log"
+	"net/http"
+	"sync"
 
-	sockets "github.com/givensuman/go-sockets/server"
 	"github.com/givensuman/teletyperacer/server/types"
+	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 )
 
-// HandleConnections sets up WebSocket event handlers
-func HandleConnections(io *sockets.Namespace) {
-	log.Printf("🔧 Setting up WebSocket event handlers for namespace")
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool {
+		return true // Allow connections from any origin
+	},
+}
 
-	io.On("connection", func(s *sockets.Socket) {
-		log.Printf("🔌 New WebSocket connection established - Client ID: %s", s.ID)
+// Message represents a WebSocket message
+type Message struct {
+	Type string      `json:"type"`
+	Data interface{} `json:"data,omitempty"`
+}
 
-		// Handle room creation
-		s.On("createRoom", func(code string) {
-			log.Printf("🏠 Client %s attempting to create room with code %s", s.ID, code)
+// RoomManager manages WebSocket connections and rooms
+type RoomManager struct {
+	rooms map[string]map[string]*websocket.Conn // roomCode -> clientID -> conn
+	mu    sync.RWMutex
+}
 
-			// Join the room (this creates it if it doesn't exist)
-			s.Join(code)
-			log.Printf("✅ Room %s created successfully by client %s", code, s.ID)
+// NewRoomManager creates a new room manager
+func NewRoomManager() *RoomManager {
+	return &RoomManager{
+		rooms: make(map[string]map[string]*websocket.Conn),
+	}
+}
 
-			// Send room created confirmation
-			s.Emit("roomCreated", types.RoomCreatedResponse{Code: code})
-			log.Printf("📤 Sent roomCreated confirmation to client %s for room %s", s.ID, code)
+// AddClient adds a client to a room
+func (rm *RoomManager) AddClient(roomCode, clientID string, conn *websocket.Conn) {
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
 
-			// Send initial room state (just the host for now)
-			roomState := types.RoomStateResponse{
-				Code:    code,
-				Players: []string{"You (Host)"},
+	if rm.rooms[roomCode] == nil {
+		rm.rooms[roomCode] = make(map[string]*websocket.Conn)
+	}
+	rm.rooms[roomCode][clientID] = conn
+}
+
+// RemoveClient removes a client from a room
+func (rm *RoomManager) RemoveClient(roomCode, clientID string) {
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+
+	if room, exists := rm.rooms[roomCode]; exists {
+		delete(room, clientID)
+		if len(room) == 0 {
+			delete(rm.rooms, roomCode)
+		}
+	}
+}
+
+// BroadcastToRoom broadcasts a message to all clients in a room except the sender
+func (rm *RoomManager) BroadcastToRoom(roomCode, senderID string, msg interface{}) {
+	rm.mu.RLock()
+	defer rm.mu.RUnlock()
+
+	room, exists := rm.rooms[roomCode]
+	if !exists {
+		return
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		log.Printf("Error marshaling broadcast message: %v", err)
+		return
+	}
+
+	for clientID, conn := range room {
+		if clientID != senderID {
+			if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+				log.Printf("Error broadcasting to client %s: %v", clientID, err)
 			}
-			s.Emit("roomState", roomState)
-			log.Printf("📤 Sent initial roomState to client %s for room %s: %d players", s.ID, code, len(roomState.Players))
-		})
+		}
+	}
+}
 
-		// Handle room joining
-		s.On("joinRoom", func(code string) {
-			log.Printf("🚪 Client %s attempting to join room %s", s.ID, code)
+// GetRoomClients returns the number of clients in a room
+func (rm *RoomManager) GetRoomClients(roomCode string) int {
+	rm.mu.RLock()
+	defer rm.mu.RUnlock()
 
-			// Join the room
-			s.Join(code)
-			log.Printf("✅ Client %s successfully joined room %s", s.ID, code)
+	if room, exists := rm.rooms[roomCode]; exists {
+		return len(room)
+	}
+	return 0
+}
 
-			// Send join confirmation
-			s.Emit("roomJoined", types.RoomJoinedResponse{Code: code})
-			log.Printf("📤 Sent roomJoined confirmation to client %s for room %s", s.ID, code)
+var roomManager = NewRoomManager()
 
-			// Send room state with current players
-			roomState := types.RoomStateResponse{
-				Code:    code,
-				Players: []string{"Host", "You"},
+// HandleWebSocket handles WebSocket connections
+func HandleWebSocket(w http.ResponseWriter, r *http.Request) {
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("Failed to upgrade connection: %v", err)
+		return
+	}
+	defer conn.Close()
+
+	clientID := uuid.New().String()
+	log.Printf("🔌 New WebSocket connection established - Client ID: %s", clientID)
+
+	// Handle messages from this client
+	for {
+		_, data, err := conn.ReadMessage()
+		if err != nil {
+			log.Printf("WebSocket read error for client %s: %v", clientID, err)
+			break
+		}
+
+		var msg Message
+		if err := json.Unmarshal(data, &msg); err != nil {
+			log.Printf("Error unmarshaling message from client %s: %v", clientID, err)
+			continue
+		}
+
+		switch msg.Type {
+		case "createRoom":
+			var req types.CreateRoomRequest
+			if dataBytes, err := json.Marshal(msg.Data); err == nil {
+				json.Unmarshal(dataBytes, &req)
 			}
-			s.Emit("roomState", roomState)
-			log.Printf("📤 Sent roomState to client %s for room %s: %d players", s.ID, code, len(roomState.Players))
+			handleCreateRoom(conn, clientID, req.Code)
 
-			// Broadcast to others in the room
-			s.Broadcast().To(code).Emit("playerJoined", "You")
-			log.Printf("📢 Broadcasted playerJoined event to room %s (excluding sender %s)", code, s.ID)
-		})
+		case "joinRoom":
+			var req types.JoinRoomRequest
+			if dataBytes, err := json.Marshal(msg.Data); err == nil {
+				json.Unmarshal(dataBytes, &req)
+			}
+			handleJoinRoom(conn, clientID, req.Code)
 
-		// Handle errors
-		s.On("error", func(err interface{}) {
-			log.Printf("❌ WebSocket error for client %s: %v", s.ID, err)
-		})
+		default:
+			log.Printf("Unknown message type from client %s: %s", clientID, msg.Type)
+		}
+	}
 
-		s.On("disconnect", func() {
-			log.Printf("🔌 WebSocket connection closed - Client ID: %s disconnected", s.ID)
-		})
-	})
+	// Clean up when client disconnects
+	log.Printf("🔌 WebSocket connection closed - Client ID: %s disconnected", clientID)
+	// Note: In a real implementation, you'd need to track which rooms the client was in
+	// For simplicity, we'll assume clients are only in one room at a time
+}
+
+func handleCreateRoom(conn *websocket.Conn, clientID, code string) {
+	log.Printf("🏠 Client %s attempting to create room with code %s", clientID, code)
+
+	roomManager.AddClient(code, clientID, conn)
+	log.Printf("✅ Room %s created successfully by client %s", code, clientID)
+
+	// Send room created confirmation
+	response := Message{Type: "roomCreated", Data: types.RoomCreatedResponse{Code: code}}
+	sendMessage(conn, response)
+	log.Printf("📤 Sent roomCreated confirmation to client %s for room %s", clientID, code)
+
+	// Send initial room state (just the host for now)
+	roomState := types.RoomStateResponse{
+		Code:    code,
+		Players: []string{"You (Host)"},
+	}
+	stateMsg := Message{Type: "roomState", Data: roomState}
+	sendMessage(conn, stateMsg)
+	log.Printf("📤 Sent initial roomState to client %s for room %s: %d players", clientID, code, len(roomState.Players))
+}
+
+func handleJoinRoom(conn *websocket.Conn, clientID, code string) {
+	log.Printf("🚪 Client %s attempting to join room %s", clientID, code)
+
+	roomManager.AddClient(code, clientID, conn)
+	log.Printf("✅ Client %s successfully joined room %s", clientID, code)
+
+	// Send join confirmation
+	response := Message{Type: "roomJoined", Data: types.RoomJoinedResponse{Code: code}}
+	sendMessage(conn, response)
+	log.Printf("📤 Sent roomJoined confirmation to client %s for room %s", clientID, code)
+
+	// Send room state with current players
+	// For simplicity, assume 2 players: Host and You
+	roomState := types.RoomStateResponse{
+		Code:    code,
+		Players: []string{"Host", "You"},
+	}
+	stateMsg := Message{Type: "roomState", Data: roomState}
+	sendMessage(conn, stateMsg)
+	log.Printf("📤 Sent roomState to client %s for room %s: %d players", clientID, code, len(roomState.Players))
+
+	// Broadcast to others in the room
+	broadcastMsg := Message{Type: "playerJoined", Data: types.PlayerJoinedResponse{PlayerName: "You"}}
+	roomManager.BroadcastToRoom(code, clientID, broadcastMsg)
+	log.Printf("📢 Broadcasted playerJoined event to room %s (excluding sender %s)", code, clientID)
+}
+
+func sendMessage(conn *websocket.Conn, msg interface{}) {
+	data, err := json.Marshal(msg)
+	if err != nil {
+		log.Printf("Error marshaling message: %v", err)
+		return
+	}
+	if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+		log.Printf("Error sending message: %v", err)
+	}
 }

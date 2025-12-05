@@ -9,8 +9,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	zone "github.com/lrstanley/bubblezone"
 
-	"github.com/givensuman/teletyperacer/client/internal/components/button"
-	"github.com/givensuman/teletyperacer/client/internal/tui"
+	"github.com/givensuman/teletyperacer/client/internal/tui/components/button"
+	"github.com/givensuman/teletyperacer/client/internal/types"
 )
 
 type HomeModel struct {
@@ -18,7 +18,7 @@ type HomeModel struct {
 	choices          [4]button.Model
 	notification     string
 	spinner          spinner.Model
-	connectionStatus tui.ConnectionStatus
+	connectionStatus types.ConnectionStatus
 }
 
 func NewHome() HomeModel {
@@ -26,8 +26,8 @@ func NewHome() HomeModel {
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 
-	joinBtn := button.NewFocusedButton("Join", func() tea.Msg { return tui.ScreenChangeMsg{Screen: tui.RoomInputScreen} })
-	hostBtn := button.NewButton("Host", func() tea.Msg { return tui.ScreenChangeMsg{Screen: tui.HostScreen} })
+	joinBtn := button.NewFocusedButton("Join", func() tea.Msg { return types.ScreenChangeMsg{Screen: types.RoomInputScreen} })
+	hostBtn := button.NewButton("Host", func() tea.Msg { return types.ScreenChangeMsg{Screen: types.HostScreen} })
 
 	// Initially disable Join and Host since connection starts as Connecting
 	disabledJoinBtn, _ := joinBtn.Update(button.Disable)
@@ -40,12 +40,12 @@ func NewHome() HomeModel {
 		choices: [4]button.Model{
 			joinBtn,
 			hostBtn,
-			button.NewButton("Practice", func() tea.Msg { return tui.ScreenChangeMsg{Screen: tui.PracticeScreen} }),
+			button.NewButton("Practice", func() tea.Msg { return types.ScreenChangeMsg{Screen: types.PracticeScreen} }),
 			button.NewButton("Quit", tea.Quit),
 		},
 		notification:     "",
 		spinner:          s,
-		connectionStatus: tui.Connecting,
+		connectionStatus: types.Connecting,
 	}
 }
 
@@ -90,33 +90,33 @@ func (m HomeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spinner, cmd = m.spinner.Update(msg)
 		cmds = append(cmds, cmd)
 
-	case tui.ConnectionStatusMsg:
+	case types.ConnectionStatusMsg:
 		m.connectionStatus = msg.Status
 		switch msg.Status {
-		case tui.Connected:
+		case types.Connected:
 			m.notification = "Connected to server successfully."
 			// Enable Join and Host buttons
 			enabledJoin, _ := m.choices[0].Update(button.Enable)
 			enabledHost, _ := m.choices[1].Update(button.Enable)
 			m.choices[0] = enabledJoin.(button.Model)
 			m.choices[1] = enabledHost.(button.Model)
-		case tui.Connecting:
+		case types.Connecting:
 			m.notification = "Connecting to server..."
-		case tui.ServerUnreachable:
+		case types.ServerUnreachable:
 			m.notification = "Server unreachable. Join and Host are disabled."
 			// Disable Join and Host buttons
 			disabledJoin, _ := m.choices[0].Update(button.Disable)
 			disabledHost, _ := m.choices[1].Update(button.Disable)
 			m.choices[0] = disabledJoin.(button.Model)
 			m.choices[1] = disabledHost.(button.Model)
-		case tui.ClientError:
+		case types.ClientError:
 			m.notification = "Client configuration error. Join and Host are disabled."
 			// Disable Join and Host buttons
 			disabledJoin, _ := m.choices[0].Update(button.Disable)
 			disabledHost, _ := m.choices[1].Update(button.Disable)
 			m.choices[0] = disabledJoin.(button.Model)
 			m.choices[1] = disabledHost.(button.Model)
-		case tui.Failed:
+		case types.Failed:
 			// Keep backward compatibility - treat as server unreachable
 			m.notification = "Connection failed. Join and Host are disabled."
 			// Disable Join and Host buttons
@@ -246,21 +246,21 @@ func (m HomeModel) View() string {
 
 	var status string
 	switch m.connectionStatus {
-	case tui.Connecting:
+	case types.Connecting:
 		status = m.spinner.View() + " Connecting..."
-	case tui.Connected:
+	case types.Connected:
 		status = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("2")).
 			Render("✓ Connected")
-	case tui.ServerUnreachable:
+	case types.ServerUnreachable:
 		status = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("1")).
 			Render("✗ Server unreachable")
-	case tui.ClientError:
+	case types.ClientError:
 		status = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("1")).
 			Render("✗ Client configuration error")
-	case tui.Failed:
+	case types.Failed:
 		status = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("1")).
 			Render("✗ Connection failed")

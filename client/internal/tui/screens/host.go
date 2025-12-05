@@ -8,7 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/givensuman/teletyperacer/client/internal/tui"
+	"github.com/givensuman/teletyperacer/client/internal/types"
 )
 
 type HostModel struct {
@@ -35,7 +35,7 @@ func NewHost() HostModel {
 }
 
 func (m HostModel) Init() tea.Cmd {
-	return func() tea.Msg { return tui.CreateRoomMsg{} }
+	return func() tea.Msg { return types.CreateRoomMsg{} }
 }
 
 func (m HostModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -45,12 +45,12 @@ func (m HostModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "esc":
-			return m, func() tea.Msg { return tui.ScreenChangeMsg{Screen: tui.HomeScreen} }
+			return m, func() tea.Msg { return types.ScreenChangeMsg{Screen: types.HomeScreen} }
 		}
-	case tui.RoomCreatedMsg:
+	case types.RoomCreatedMsg:
 		// Server confirmed room creation
 		m.players = []string{"You (Host)"}
-	case tui.PlayerJoinedMsg:
+	case types.PlayerJoinedMsg:
 		m.players = append(m.players, msg.PlayerName)
 	}
 

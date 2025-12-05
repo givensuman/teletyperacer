@@ -10,11 +10,12 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/gorilla/websocket"
 	zone "github.com/lrstanley/bubblezone"
 
-	sockets "github.com/givensuman/go-sockets/client"
-	"github.com/givensuman/teletyperacer/client/internal/tui"
+	"github.com/givensuman/teletyperacer/client/internal/tui/components/roominput"
 	"github.com/givensuman/teletyperacer/client/internal/tui/screens"
+	"github.com/givensuman/teletyperacer/client/internal/types"
 )
 
 // WebSocket message types
@@ -42,19 +43,20 @@ type PlayerJoinedData struct {
 
 type Model struct {
 	// Currently rendered screen
-	screen tui.Screen
+	screen types.Screen
 	// Child models
 	home,
 	host,
-	practice,
+	practice tea.Model
+	// Room input component (used as screen)
 	roomInput tea.Model
 	// WebSocket connection
-	socket  *sockets.Socket
+	conn    *websocket.Conn
 	spinner spinner.Model
 	// Window dimensions
 	width, height int
 	// Connection status
-	connectionStatus tui.ConnectionStatus
+	connectionStatus types.ConnectionStatus
 	// WebSocket message channel
 	wsChan chan tea.Msg
 }
@@ -70,19 +72,19 @@ func (b backgroundModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) { return b, ni
 func (b backgroundModel) View() string {
 	var content string
 	switch b.root.screen {
-	case tui.HomeScreen:
+	case types.HomeScreen:
 		content = b.root.home.View()
-	case tui.HostScreen:
+	case types.HostScreen:
 		content = b.root.host.View()
-	case tui.PracticeScreen:
+	case types.PracticeScreen:
 		content = b.root.practice.View()
-	case tui.RoomInputScreen:
+	case types.RoomInputScreen:
 		content = b.root.roomInput.View()
 	default:
 		content = b.root.home.View()
 	}
 
-	if b.root.connectionStatus == tui.Connecting {
+	if b.root.connectionStatus == types.Connecting {
 		spinnerView := lipgloss.NewStyle().
 			AlignVertical(lipgloss.Center).
 			AlignHorizontal(lipgloss.Center).
@@ -106,9 +108,9 @@ func (b backgroundModel) View() string {
 }
 
 // categorizeConnectionError determines the type of connection error
-func categorizeConnectionError(err error) tui.ConnectionStatus {
+func categorizeConnectionError(err error) types.ConnectionStatus {
 	if err == nil {
-		return tui.Connected
+		return types.Connected
 	}
 
 	errStr := err.Error()
@@ -117,18 +119,18 @@ func categorizeConnectionError(err error) tui.ConnectionStatus {
 	if strings.Contains(errStr, "invalid URL") ||
 		strings.Contains(errStr, "unsupported protocol") ||
 		strings.Contains(errStr, "malformed") {
-		return tui.ClientError
+		return types.ClientError
 	}
 
 	// Check for network-related errors that indicate server unreachable
 	if netErr, ok := err.(net.Error); ok {
 		if netErr.Timeout() {
-			return tui.ServerUnreachable
+			return types.ServerUnreachable
 		}
 		// Check for specific network error types
 		if opErr, ok := netErr.(*net.OpError); ok {
 			if opErr.Op == "dial" {
-				return tui.ServerUnreachable
+				return types.ServerUnreachable
 			}
 		}
 	}
@@ -138,21 +140,25 @@ func categorizeConnectionError(err error) tui.ConnectionStatus {
 		strings.Contains(errStr, "no such host") ||
 		strings.Contains(errStr, "network is unreachable") ||
 		strings.Contains(errStr, "connection timed out") {
-		return tui.ServerUnreachable
+		return types.ServerUnreachable
 	}
 
 	// Default to client error for any other issues
-	return tui.ClientError
+	return types.ClientError
 }
 
 // sendWSMessage sends a message to the WebSocket server
 func (m Model) sendWSMessage(msgType string, data interface{}) {
-	if m.socket == nil {
+	if m.conn == nil {
 		return
 	}
 
-	// Send the data directly - let the library handle serialization
-	m.socket.Emit(msgType, data)
+	msg := WSMessage{Type: msgType, Data: data}
+	jsonData, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+	m.conn.WriteMessage(websocket.TextMessage, jsonData)
 }
 
 // handleWSMessageFromEvent processes incoming WebSocket messages from specific events
@@ -167,7 +173,7 @@ func (m Model) handleWSMessageFromEvent(eventType string, data interface{}) tea.
 		} else if d, ok := data.(CreateRoomData); ok {
 			roomData = d
 		}
-		return tui.RoomCreatedMsg{Code: roomData.Code}
+		return types.RoomCreatedMsg{Code: roomData.Code}
 
 	case "roomJoined":
 		var roomData JoinRoomData
@@ -178,7 +184,7 @@ func (m Model) handleWSMessageFromEvent(eventType string, data interface{}) tea.
 		} else if d, ok := data.(JoinRoomData); ok {
 			roomData = d
 		}
-		return tui.RoomJoinedMsg{Code: roomData.Code}
+		return types.RoomJoinedMsg{Code: roomData.Code}
 
 	case "playerJoined":
 		var playerData PlayerJoinedData
@@ -189,7 +195,7 @@ func (m Model) handleWSMessageFromEvent(eventType string, data interface{}) tea.
 		} else if d, ok := data.(PlayerJoinedData); ok {
 			playerData = d
 		}
-		return tui.PlayerJoinedMsg{PlayerName: playerData.PlayerName}
+		return types.PlayerJoinedMsg{PlayerName: playerData.PlayerName}
 
 	case "roomState":
 		var stateData RoomStateData
@@ -207,7 +213,7 @@ func (m Model) handleWSMessageFromEvent(eventType string, data interface{}) tea.
 		} else if d, ok := data.(RoomStateData); ok {
 			stateData = d
 		}
-		return tui.RoomStateMsg{Code: stateData.Code, Players: stateData.Players}
+		return types.RoomStateMsg{Code: stateData.Code, Players: stateData.Players}
 
 	case "error":
 		// For now, ignore errors. Could return an error message to display
@@ -253,24 +259,24 @@ func (m Model) waitForWSMessage() tea.Cmd {
 }
 
 func New() Model {
-	socket, err := sockets.Connect("ws://localhost:3000/ws/", "/", nil)
+	conn, _, err := websocket.DefaultDialer.Dial("ws://localhost:3000/ws/", nil)
 
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 
-	connectionStatus := tui.Connected
+	connectionStatus := types.Connected
 	if err != nil {
 		connectionStatus = categorizeConnectionError(err)
 	}
 
 	return Model{
-		screen:           tui.HomeScreen,
+		screen:           types.HomeScreen,
 		home:             screens.NewHome(),
 		host:             screens.NewHost(),
 		practice:         screens.NewPractice(),
-		roomInput:        screens.NewRoomInput(),
-		socket:           socket,
+		roomInput:        roominput.NewRoomInput(),
+		conn:             conn,
 		spinner:          s,
 		width:            80,
 		height:           24,
@@ -280,63 +286,36 @@ func New() Model {
 }
 
 func (m Model) Init() tea.Cmd {
-	// Set up WebSocket message listeners
-	if m.socket != nil {
-		m.socket.On("roomCreated", func(data interface{}) {
-			if msg := m.handleWSMessageFromEvent("roomCreated", data); msg != nil {
-				select {
-				case m.wsChan <- msg:
-				default:
-					// Channel full, drop message
+	// Start WebSocket message reader
+	if m.conn != nil {
+		go func() {
+			for {
+				_, data, err := m.conn.ReadMessage()
+				if err != nil {
+					// Connection closed or error
+					return
 				}
-			}
-		})
 
-		m.socket.On("roomJoined", func(data interface{}) {
-			if msg := m.handleWSMessageFromEvent("roomJoined", data); msg != nil {
-				select {
-				case m.wsChan <- msg:
-				default:
-					// Channel full, drop message
+				var wsMsg WSMessage
+				if err := json.Unmarshal(data, &wsMsg); err != nil {
+					continue
 				}
-			}
-		})
 
-		m.socket.On("roomState", func(data interface{}) {
-			if msg := m.handleWSMessageFromEvent("roomState", data); msg != nil {
-				select {
-				case m.wsChan <- msg:
-				default:
-					// Channel full, drop message
+				if msg := m.handleWSMessageFromEvent(wsMsg.Type, wsMsg.Data); msg != nil {
+					select {
+					case m.wsChan <- msg:
+					default:
+						// Channel full, drop message
+					}
 				}
 			}
-		})
-
-		m.socket.On("playerJoined", func(data interface{}) {
-			if msg := m.handleWSMessageFromEvent("playerJoined", data); msg != nil {
-				select {
-				case m.wsChan <- msg:
-				default:
-					// Channel full, drop message
-				}
-			}
-		})
-
-		m.socket.On("error", func(data interface{}) {
-			if msg := m.handleWSMessageFromEvent("error", data); msg != nil {
-				select {
-				case m.wsChan <- msg:
-				default:
-					// Channel full, drop message
-				}
-			}
-		})
+		}()
 	}
 
 	return tea.Batch(
 		m.spinner.Tick,
 		func() tea.Msg {
-			return tui.ConnectionStatusMsg{Status: m.connectionStatus}
+			return types.ConnectionStatusMsg{Status: m.connectionStatus}
 		},
 		m.waitForWSMessage(),
 	)
@@ -350,8 +329,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Forward window size to current screen
 		return m.updateCurrentScreen(msg)
 
-	case tui.ScreenChangeMsg:
+	case types.ScreenChangeMsg:
 		m.screen = msg.Screen
+		if msg.Screen == types.RoomInputScreen {
+			m.roomInput = roominput.NewRoomInput()
+		}
 		return m, nil
 
 	case spinner.TickMsg:
@@ -359,21 +341,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
 
-	case tui.ConnectionStatusMsg:
+	case types.ConnectionStatusMsg:
 		m.connectionStatus = msg.Status
 		// Forward connection status to current screen
 		return m.updateCurrentScreen(msg)
 
-	case tui.CreateRoomMsg:
+	case types.CreateRoomMsg:
 		// Get the join code from the host screen
 		if hostModel, ok := m.host.(screens.HostModel); ok {
 			m.sendWSMessage("createRoom", CreateRoomData{Code: hostModel.GetJoinCode()})
 		}
 		return m, nil
 
-	case tui.JoinRoomMsg:
+	case types.JoinRoomMsg:
 		m.sendWSMessage("joinRoom", JoinRoomData{Code: msg.Code})
 		return m, nil
+
+	case roominput.JoinRoomMsg:
+		// Send join room message to server
+		return m, func() tea.Msg {
+			return types.JoinRoomMsg{Code: strings.ToUpper(msg.Code)}
+		}
+
+	case roominput.HideMsg:
+		return m, func() tea.Msg { return types.ScreenChangeMsg{Screen: types.HomeScreen} }
+
+	case types.RoomJoinedMsg:
+		// Successfully joined room, go back to home
+		return m, func() tea.Msg { return types.ScreenChangeMsg{Screen: types.HomeScreen} }
 
 	default:
 		// Forward all other messages to current screen
@@ -384,13 +379,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) updateCurrentScreen(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch m.screen {
-	case tui.HomeScreen:
+	case types.HomeScreen:
 		m.home, cmd = m.home.Update(msg)
-	case tui.HostScreen:
+	case types.HostScreen:
 		m.host, cmd = m.host.Update(msg)
-	case tui.PracticeScreen:
+	case types.PracticeScreen:
 		m.practice, cmd = m.practice.Update(msg)
-	case tui.RoomInputScreen:
+	case types.RoomInputScreen:
 		m.roomInput, cmd = m.roomInput.Update(msg)
 	default:
 		cmd = nil
@@ -403,19 +398,19 @@ func (m Model) updateCurrentScreen(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) View() string {
 	var content string
 	switch m.screen {
-	case tui.HomeScreen:
+	case types.HomeScreen:
 		content = m.home.View()
-	case tui.HostScreen:
+	case types.HostScreen:
 		content = m.host.View()
-	case tui.PracticeScreen:
+	case types.PracticeScreen:
 		content = m.practice.View()
-	case tui.RoomInputScreen:
+	case types.RoomInputScreen:
 		content = m.roomInput.View()
 	default:
 		content = m.home.View()
 	}
 
-	if m.connectionStatus == tui.Connecting {
+	if m.connectionStatus == types.Connecting {
 		spinnerView := lipgloss.NewStyle().
 			AlignVertical(lipgloss.Center).
 			AlignHorizontal(lipgloss.Center).

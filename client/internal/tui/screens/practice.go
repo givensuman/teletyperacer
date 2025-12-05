@@ -5,7 +5,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/givensuman/teletyperacer/client/internal/components/typing"
+	"github.com/givensuman/teletyperacer/client/internal/tui/components/typing"
 )
 
 type PracticeModel struct {

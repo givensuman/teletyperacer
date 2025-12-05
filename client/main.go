@@ -4,7 +4,7 @@ import (
 	"github.com/charmbracelet/bubbletea"
 	zone "github.com/lrstanley/bubblezone"
 
-	"github.com/givensuman/teletyperacer/client/internal/tui/root"
+	"github.com/givensuman/teletyperacer/client/internal/tui"
 )
 
 // https://github.com/givensuman/teletyperacer
