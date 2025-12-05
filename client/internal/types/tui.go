@@ -6,7 +6,7 @@ type Screen int
 
 const (
 	HomeScreen Screen = iota
-	HostScreen
+	LobbyScreen
 	PracticeScreen
 	JoinScreen
 )
@@ -46,6 +46,18 @@ type RoomJoinedMsg struct {
 
 type PlayerJoinedMsg struct {
 	PlayerName string
+}
+
+type CopyCodeMsg struct {
+	Code string
+}
+
+type ClipboardErrorMsg struct {
+	Message string
+}
+
+type ClipboardSuccessMsg struct {
+	Message string
 }
 
 type RoomStateMsg struct {

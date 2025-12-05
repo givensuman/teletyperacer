@@ -37,6 +37,9 @@ func (m JoinModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case input.HideMsg:
 		return m, func() tea.Msg { return types.ScreenChangeMsg{Screen: types.HomeScreen} }
+	case types.RoomJoinedMsg:
+		// Successfully joined room, go to lobby as player
+		return m, func() tea.Msg { return types.ScreenChangeMsg{Screen: types.LobbyScreen} }
 	default:
 		var cmd tea.Cmd
 		updatedInput, cmd := m.input.Update(msg)

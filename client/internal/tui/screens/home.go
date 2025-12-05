@@ -27,7 +27,7 @@ func NewHome() HomeModel {
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 
 	joinBtn := button.NewFocusedButton("Join", func() tea.Msg { return types.ScreenChangeMsg{Screen: types.JoinScreen} })
-	hostBtn := button.NewButton("Host", func() tea.Msg { return types.ScreenChangeMsg{Screen: types.HostScreen} })
+	hostBtn := button.NewButton("Host", func() tea.Msg { return types.ScreenChangeMsg{Screen: types.LobbyScreen} })
 
 	// Initially disable Join and Host since connection starts as Connecting
 	disabledJoinBtn, _ := joinBtn.Update(button.Disable)

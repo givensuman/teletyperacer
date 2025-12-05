@@ -7,6 +7,7 @@ import (
 	"net"
 	"strings"
 
+	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -46,7 +47,7 @@ type Model struct {
 	screen types.Screen
 	// Child models
 	home,
-	host,
+	lobby,
 	practice tea.Model
 	// Join screen
 	join tea.Model
@@ -74,8 +75,8 @@ func (b backgroundModel) View() string {
 	switch b.root.screen {
 	case types.HomeScreen:
 		content = b.root.home.View()
-	case types.HostScreen:
-		content = b.root.host.View()
+	case types.LobbyScreen:
+		content = b.root.lobby.View()
 	case types.PracticeScreen:
 		content = b.root.practice.View()
 	case types.JoinScreen:
@@ -159,6 +160,16 @@ func (m Model) sendWSMessage(msgType string, data interface{}) {
 		return
 	}
 	m.conn.WriteMessage(websocket.TextMessage, jsonData)
+}
+
+// copyToClipboard attempts to copy text to system clipboard
+func (m Model) copyToClipboard(text string) tea.Cmd {
+	return func() tea.Msg {
+		if err := clipboard.WriteAll(text); err != nil {
+			return types.ClipboardErrorMsg{Message: "Failed to copy to clipboard"}
+		}
+		return types.ClipboardSuccessMsg{Message: "Code copied to clipboard!"}
+	}
 }
 
 // handleWSMessageFromEvent processes incoming WebSocket messages from specific events
@@ -273,7 +284,7 @@ func New() Model {
 	return Model{
 		screen:           types.HomeScreen,
 		home:             screens.NewHome(),
-		host:             screens.NewHost(),
+		lobby:            screens.NewHostLobby(),
 		practice:         screens.NewPractice(),
 		join:             screens.NewJoin(),
 		conn:             conn,
@@ -334,6 +345,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Screen == types.JoinScreen {
 			m.join = screens.NewJoin()
 		}
+		if msg.Screen == types.LobbyScreen && m.screen == types.HomeScreen {
+			// Only initialize host lobby when coming from home screen
+			m.lobby = screens.NewHostLobby()
+		}
 		return m, nil
 
 	case spinner.TickMsg:
@@ -347,9 +362,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateCurrentScreen(msg)
 
 	case types.CreateRoomMsg:
-		// Get the join code from the host screen
-		if hostModel, ok := m.host.(screens.HostModel); ok {
-			m.sendWSMessage("createRoom", CreateRoomData{Code: hostModel.GetJoinCode()})
+		// Get the join code from the lobby screen
+		if lobbyModel, ok := m.lobby.(screens.LobbyModel); ok {
+			m.sendWSMessage("createRoom", CreateRoomData{Code: lobbyModel.GetJoinCode()})
 		}
 		return m, nil
 
@@ -366,9 +381,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case input.HideMsg:
 		return m, func() tea.Msg { return types.ScreenChangeMsg{Screen: types.HomeScreen} }
 
+	case types.CopyCodeMsg:
+		// Try to copy code to clipboard using common commands
+		cmd := m.copyToClipboard(msg.Code)
+		return m, cmd
+
+	case types.ClipboardSuccessMsg:
+		// Could show a brief success notification here
+		return m, nil
+
+	case types.ClipboardErrorMsg:
+		// Could show an error notification here
+		return m, nil
+
 	case types.RoomJoinedMsg:
-		// Successfully joined room, go back to home
-		return m, func() tea.Msg { return types.ScreenChangeMsg{Screen: types.HomeScreen} }
+		// Successfully joined room, switch to player lobby
+		m.lobby = screens.NewPlayerLobby(msg.Code)
+		return m, func() tea.Msg { return types.ScreenChangeMsg{Screen: types.LobbyScreen} }
 
 	default:
 		// Forward all other messages to current screen
@@ -381,8 +410,8 @@ func (m Model) updateCurrentScreen(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m.screen {
 	case types.HomeScreen:
 		m.home, cmd = m.home.Update(msg)
-	case types.HostScreen:
-		m.host, cmd = m.host.Update(msg)
+	case types.LobbyScreen:
+		m.lobby, cmd = m.lobby.Update(msg)
 	case types.PracticeScreen:
 		m.practice, cmd = m.practice.Update(msg)
 	case types.JoinScreen:
@@ -400,8 +429,8 @@ func (m Model) View() string {
 	switch m.screen {
 	case types.HomeScreen:
 		content = m.home.View()
-	case types.HostScreen:
-		content = m.host.View()
+	case types.LobbyScreen:
+		content = m.lobby.View()
 	case types.PracticeScreen:
 		content = m.practice.View()
 	case types.JoinScreen:
